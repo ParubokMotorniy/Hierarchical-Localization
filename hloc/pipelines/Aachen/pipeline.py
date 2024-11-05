@@ -64,6 +64,7 @@ def run(args):
         query_prefix="query",
         db_model=reference_sfm,
     )
+    
     loc_matches = match_features.main(
         matcher_conf, loc_pairs, feature_conf["output"], outputs
     )
@@ -75,7 +76,8 @@ def run(args):
         features,
         loc_matches,
         results,
-        covisibility_clustering=False,
+        covisibility_clustering=True,
+        prepend_camera_name=True
     )  # not required with SuperPoint+SuperGlue
 
 

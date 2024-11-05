@@ -97,7 +97,8 @@ def evaluate(model, results, list_file=None, ext=".bin", only_localized=False):
             data = data.split()
             name = data[0]
             q, t = np.split(np.array(data[1:], float), [4])
-            predictions[name] = (qvec2rotmat(q), t)
+            t = t[:3]
+            predictions[name] = (qvec2rotmat(q), t, time)
     if ext == ".bin":
         images = read_images_binary(model / "images.bin")
     else:
@@ -121,7 +122,12 @@ def evaluate(model, results, list_file=None, ext=".bin", only_localized=False):
         else:
             image = images[name2id[name]]
             R_gt, t_gt = image.qvec2rotmat(), image.tvec
+            print(f"R_gt {R_gt};\n t_gt {t_gt}")
+
             R, t = predictions[name]
+
+            print(f"R {R};\n t {t}")
+
             e_t = np.linalg.norm(-R_gt.T @ t_gt + R.T @ t, axis=0)
             cos = np.clip((np.trace(np.dot(R_gt.T, R)) - 1) / 2, -1.0, 1.0)
             e_R = np.rad2deg(np.abs(np.arccos(cos)))
