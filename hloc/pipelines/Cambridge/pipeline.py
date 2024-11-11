@@ -3,7 +3,7 @@ from pathlib import Path
 
 from ... import (
     extract_features,
-    localize_sfm,
+    localize_sfm_p3p_sample,
     logger,
     match_features,
     pairs_from_covisibility,
@@ -71,7 +71,7 @@ def run_scene(images, gt_dir, outputs, results, num_covis, num_loc):
         matcher_conf, loc_pairs, feature_conf["output"], outputs
     )
 
-    localize_sfm.main(
+    localize_sfm_p3p_sample.main(
         ref_sfm,
         query_list,
         loc_pairs,
@@ -81,7 +81,6 @@ def run_scene(images, gt_dir, outputs, results, num_covis, num_loc):
         covisibility_clustering=False,
         prepend_camera_name=True,
     )
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -130,11 +129,11 @@ if __name__ == "__main__":
             )
         all_results[scene] = results
 
-    for scene in args.scenes:
-        logger.info(f'Evaluate scene "{scene}".')
-        evaluate(
-            gt_dirs / scene / "empty_all",
-            all_results[scene],
-            gt_dirs / scene / "list_query.txt",
-            ext=".txt",
-        )
+    # for scene in args.scenes:
+    #     logger.info(f'Evaluate scene "{scene}".')
+    #     evaluate(
+    #         gt_dirs / scene / "empty_all",
+    #         all_results[scene],
+    #         gt_dirs / scene / "list_query.txt",
+    #         ext=".txt",
+    #     )
