@@ -8,8 +8,9 @@ from ... import (
     match_features,
     pairs_from_covisibility,
     pairs_from_retrieval,
-    triangulation,
+    triangulation
 )
+
 from .utils import create_query_list_with_intrinsics, evaluate, scale_sfm_images
 
 SCENES = ["KingsCollege", "OldHospital", "ShopFacade", "StMarysChurch", "GreatCourt"]

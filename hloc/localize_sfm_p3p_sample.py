@@ -13,7 +13,6 @@ from . import logger
 from .utils.io import get_keypoints, get_matches
 from .utils.parsers import parse_image_lists, parse_retrieval
 
-
 def do_covisibility_clustering(
     frame_ids: List[int], reconstruction: pycolmap.Reconstruction
 ):
@@ -134,7 +133,6 @@ def pose_from_cluster(
     return ret, log
 
 
-
 def main(
         reference_sfm: Union[Path, pycolmap.Reconstruction],
         queries: Path,
@@ -147,10 +145,10 @@ def main(
         prepend_camera_name: bool = False,
         config: Dict = None,
         iterations_bounds=None,
-        iteration_repetitions:int = 10
+        iteration_repetitions:int = 30
 ):
-    if iterations_bounds is None:
-        iterations_bounds = [2,5, 10, 25, 50, 150, 200, 500, 1000, 5000, 7000, 10000]
+    if iterations_bounds is None or isinstance(iterations_bounds, list):
+        iterations_bounds = [5, 25, 100, 200, 500, 1000, 5000, 7000, 10000]
 
     assert retrieval.exists(), retrieval
     assert features.exists(), features
@@ -164,7 +162,7 @@ def main(
         reference_sfm = pycolmap.Reconstruction(reference_sfm)
     db_name_to_id = {img.name: i for i, img in reference_sfm.images.items()}
 
-    config = {"estimation": {"ransac": {"max_error": ransac_thresh, "min_num_trials" : 0}}, **(config or {})}
+    config = {"estimation": {"ransac": {"max_error": ransac_thresh, "min_num_trials" : 1, "max_num_trials":1}}, **(config or {})}
     localizer = QueryLocalizer(reference_sfm, config)
 
     cam_from_world = {}
@@ -193,16 +191,19 @@ def main(
             config['estimation']['ransac']['max_num_trials'] = iterations_upper_bound
             localizer.update_config(config)
 
+            print(f"[ {qname} : {iterations_upper_bound} ]")
+
             for i in range(iteration_repetitions):
                 ret, log = pose_from_cluster(
                    localizer, qname, qcam, db_ids, features, matches
                 )
+
                 if ret is not None:
                     rec_pos = ret["cam_from_world"]
-                    print(f"Recorded pos: {rec_pos}")
+                    # print(f"[{iterations_upper_bound} : {i}] Recorded pos: {rec_pos}")
 
                     rec_time = ret["time"]
-                    print(f"Recorded time: {rec_time}")
+                    # print(f"[{iterations_upper_bound} : {i}] Recorded time: {rec_time}")
 
                     cam_from_world[qname][iterations_upper_bound].append((ret["cam_from_world"],ret["time"]))
                 else:
