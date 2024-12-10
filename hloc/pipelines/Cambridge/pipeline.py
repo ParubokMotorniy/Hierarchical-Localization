@@ -72,7 +72,7 @@ def run_scene(images, gt_dir, outputs, results, num_covis, num_loc):
         matcher_conf, loc_pairs, feature_conf["output"], outputs
     )
 
-    localize_sfm_p3p_sample.main(
+    localize_sfm_p3p_sample.main( #or simple localizer, but with RECON
         ref_sfm,
         query_list,
         loc_pairs,
