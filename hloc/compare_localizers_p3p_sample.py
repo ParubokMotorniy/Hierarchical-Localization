@@ -7,6 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 from scipy.interpolate import interp1d
 
@@ -40,9 +41,6 @@ def evaluate_standard(model, results,  sequences:list, list_file=None, ext=".bin
 
     per_sequence_error_data = { seq:{'errors_t':[], 'errors_R':[], 'durations':[]} for seq in sequences}
 
-    # errors_t = []
-    # errors_R = []
-    # durations = []
     for name in test_names:
         if name not in predictions:
             if only_localized:
@@ -65,37 +63,16 @@ def evaluate_standard(model, results,  sequences:list, list_file=None, ext=".bin
             per_sequence_error_data[sequence_name]['errors_R'].append(e_R)
             per_sequence_error_data[sequence_name]['durations'].append(time)
 
-        # errors_t.append(e_t)
-        # errors_R.append(e_R)
-        # durations.append(time)
-
     for seq_name in per_sequence_error_data.keys():
-
-        # errors_t = np.array(errors_t)
-        # errors_R = np.array(errors_R)
-        # durations = np.array(durations)
 
         per_sequence_error_data[seq_name]['errors_t'] = np.array(per_sequence_error_data[seq_name]['errors_t']) 
         per_sequence_error_data[seq_name]['errors_R'] = np.array(per_sequence_error_data[seq_name]['errors_R'])
-        per_sequence_error_data[seq_name]['durations'] = np.array(per_sequence_error_data[seq_name]['durations']) 
-
-        # med_t = np.median(errors_t)
-        # med_R = np.median(errors_R)
-        # out = f"Results for file {results.name}:"
-        # out += f"\nMedian errors: {med_t:.3f}m, {med_R:.3f}deg"
-
-        # out += "\nPercentage of test images localized within:"
-        # threshs_t = [0.01, 0.02, 0.03, 0.05, 0.25, 0.5, 5.0]
-        # threshs_R = [1.0, 2.0, 3.0, 5.0, 2.0, 5.0, 10.0]
-        # for th_t, th_R in zip(threshs_t, threshs_R):
-        #     ratio = np.mean((errors_t < th_t) & (errors_R < th_R))
-        #     out += f"\n\t{th_t*100:.0f}cm, {th_R:.0f}deg : {ratio*100:.2f}%"
-        # print(out)
+        per_sequence_error_data[seq_name]['durations'] = np.array(per_sequence_error_data[seq_name]['durations'])
 
     print("Recon error data:", per_sequence_error_data)
     return per_sequence_error_data
 
-def evaluate_sampled(model, results, iterations_bounds:list, repetitions_per_bound:int, sequences:list,list_file=None, ext=".bin", only_localized=False):
+def evaluate_sampled(model, results, iterations_bounds:list, repetitions_per_bound:int, sequences:list,list_file=None, ext=".bin", only_localized=False, sort_errors_by_time=True):
     predictions = {}
 
     with open(results, "r") as f:
@@ -133,9 +110,6 @@ def evaluate_sampled(model, results, iterations_bounds:list, repetitions_per_bou
         with open(list_file, "r") as f:
             test_names = f.read().rstrip().split("\n")
 
-    # errors_t = []
-    # errors_R = []
-    # durations = []
     per_sequence_error_data = { seq:{'errors_t':[], 'errors_R':[], 'durations':[]} for seq in sequences}
 
     for name in test_names:
@@ -184,7 +158,7 @@ def evaluate_sampled(model, results, iterations_bounds:list, repetitions_per_bou
             localizer_progress_t = np.array(localizer_progress_t)
             localizer_progress_time = np.array(localizer_progress_time)
 
-            sort_indices = np.argsort(localizer_progress_time)
+            sort_indices = np.argsort(localizer_progress_time) if sort_errors_by_time else [i for i in range(len(localizer_progress_time))]
 
             sequence_name = name.split('/')[0]
 
@@ -193,14 +167,7 @@ def evaluate_sampled(model, results, iterations_bounds:list, repetitions_per_bou
                 per_sequence_error_data[sequence_name]['errors_R'].append(localizer_progress_r[sort_indices])
                 per_sequence_error_data[sequence_name]['durations'].append(localizer_progress_time[sort_indices])
 
-            # errors_t.append(localizer_progress_t[sort_indices])
-            # errors_R.append(localizer_progress_r[sort_indices])
-            # durations.append(localizer_progress_time[sort_indices])
-
-    # errors_t = np.array(errors_t)
-    # errors_R = np.array(errors_R)
-    # durations = np.array(durations)
-
+    #sequence -> stat -> lists of values sorted by time (for each bound) for each frame in that sequence
     for seq_name in per_sequence_error_data.keys():
         per_sequence_error_data[seq_name]['errors_t'] = np.array(per_sequence_error_data[seq_name]['errors_t']) 
         per_sequence_error_data[seq_name]['errors_R'] = np.array(per_sequence_error_data[seq_name]['errors_R'])
@@ -208,7 +175,6 @@ def evaluate_sampled(model, results, iterations_bounds:list, repetitions_per_bou
 
     print("Sampled p3p error data", per_sequence_error_data)
     return per_sequence_error_data
-    # return errors_t, errors_R, durations
 
 def plot_series_and_point(x_time_data, y_accuracy_data, x_time_tick, y_accuracy_tick, y_axis_label, title, save_path):
     sns.set(style="whitegrid")
@@ -237,28 +203,10 @@ def plot_series_and_point(x_time_data, y_accuracy_data, x_time_tick, y_accuracy_
     plt.clf()
     plt.cla()
 
-def main(dataset_name:str):
-    present_sequences = ['seq1', 'seq3']
-
-    gt_dirs = Path("./datasets/cambridge/CambridgeLandmarks_Colmap_Retriangulated_1024px")
-    model_path = gt_dirs / dataset_name / "empty_all"
-    list_file =  gt_dirs / dataset_name / "list_query.txt"
-
-    results_paths = {"p3p":Path(f"./outputs/cambridge/{dataset_name}/results.txt"),"RECON":Path(f"./outputs_recon/cambridge/{dataset_name}/results.txt")}
-
-    sample_p3p_data = evaluate_sampled(model_path,results_paths['p3p'],[5, 25, 100, 200, 500, 1000, 5000, 7000, 10000], 30, present_sequences, list_file,ext=".txt")
-    recon_data = evaluate_standard(model_path,results_paths['RECON'],present_sequences, list_file,ext=".txt")
-
-    #plot by frame #valid only for 09d447ad06276852fade825ee41d8f6dad0cfabf
-    # idx = 0
-    # for recon_t, recon_r, recon_time, p3p_t, p3p_r, p3p_time in zip(*recon_data, *sample_p3p_data):
-    #     plot_series_and_point(p3p_time,p3p_r,recon_time,recon_r,"Rotation error", "Rotation error progression", f"./plots/comparisons/r_err_prog{idx}.png")
-    #     plot_series_and_point(p3p_time,p3p_t,recon_time,recon_t,"Translation error", "Translation error progression", f"./plots/comparisons/t_err_prog{idx}.png")
-
-    #     idx += 1
-
+#expects data to be split by sequence
+def compare_interpolate(present_sequences:list, sample_p3p_data:dict, recon_data:dict):
     #summarizing by scene
-    
+
     for seq_name in present_sequences:
 
         plot_resolution = 200
@@ -384,7 +332,7 @@ def main(dataset_name:str):
         plt.legend()
 
         # plt.show()
-        plt.savefig(f"./plots/sequence_error_progression/translation_error_{seq_name}_median.png", dpi=1300,
+        plt.savefig(f"./plots/sequence_error_progression/interpolated_translation_error_{seq_name}_median.png", dpi=1300,
                     bbox_inches='tight',
                     facecolor='floralwhite')
         plt.clf()
@@ -402,12 +350,126 @@ def main(dataset_name:str):
         plt.title(f"Averaged+interpolated rotation errors. Dataset : ShopFacade. Scene: {seq_name}")
         plt.legend()
 
-        plt.savefig(f"./plots/sequence_error_progression/rotation_error_{seq_name}_median.png", dpi=1300,
+        plt.savefig(f"./plots/sequence_error_progression/interpolated_rotation_error_{seq_name}_median.png", dpi=1300,
                     bbox_inches='tight',
                     facecolor='floralwhite')
         # plt.show()
         plt.clf()
         plt.cla()
+
+def compare_aggregate_by_bound(present_sequences:list, sample_p3p_data:dict, recon_data:dict):
+    available_statistics = ['errors_t', 'errors_R', 'durations']
+
+    for seq_name in present_sequences:
+        print(f"\n-----[ Processing sequence {seq_name} ]-----\n")
+
+        #p3p processing
+        targets = []
+
+        seq_data = sample_p3p_data[seq_name]
+
+        for statistic in available_statistics:
+            statistics_data = np.array(seq_data[statistic])
+            targets.append(np.mean(statistics_data, axis=0))
+
+        p3p_median_error_t = targets[0]
+        p3p_median_error_r = targets[1]
+        p3p_median_time = targets[2]
+
+        print(f"Median p3p translation data: {p3p_median_error_t}")
+        print(f"Median p3p rotation data: {p3p_median_error_r}")
+        print(f"Median p3p time data: {p3p_median_time}")
+
+        #recon processing
+
+        recons_seq_data = recon_data[seq_name]
+        interpolation_points = np.linspace(np.min(recons_seq_data['durations']), np.max(recons_seq_data['durations']), len(p3p_median_time))
+
+        recon_t_interpolator = interp1d(recons_seq_data['durations'], recons_seq_data['errors_t'], kind='linear')#, fill_value="extrapolate")
+        recon_interpolated_error_t = recon_t_interpolator(interpolation_points) #interpolating by p3p time
+
+        recon_r_interpolator = interp1d(recons_seq_data['durations'], recons_seq_data['errors_R'], kind='linear')#, fill_value="extrapolate")
+        recon_interpolated_error_r = recon_r_interpolator(interpolation_points) #interpolating by p3p time
+
+        #plotting
+
+        ##translation
+        algorithm = []
+        time_points = []
+        errors = []
+        for error, time_point in zip(p3p_median_error_t, p3p_median_time):
+            algorithm.append("p3p")
+            time_points.append(time_point)
+            errors.append(error)
+
+        for error, time_point in zip(recon_interpolated_error_t, interpolation_points):
+            algorithm.append("recon")
+            time_points.append(time_point)
+            errors.append(error)
+
+        error_t_data_to_plot = pd.DataFrame.from_dict({"algorithm":algorithm, "time_point":time_points, "error":errors})
+        sns.lineplot(data=error_t_data_to_plot, x="time_point", y="error", hue="algorithm", legend="brief")
+
+        plt.title("Translation error comparison")
+        plt.grid(axis='y')
+        plt.ylabel("Translation error")
+        plt.xlabel("Runtime")
+
+        plt.show()
+        plt.clf()
+
+        ##rotation
+        algorithm = []
+        time_points = []
+        errors = []
+        for error, time_point in zip(p3p_median_error_r, p3p_median_time):
+            algorithm.append("p3p")
+            time_points.append(time_point)
+            errors.append(error)
+
+        for error, time_point in zip(recon_interpolated_error_r, interpolation_points):
+            algorithm.append("recon")
+            time_points.append(time_point)
+            errors.append(error)
+
+        error_r_data_to_plot = pd.DataFrame.from_dict({"algorithm":algorithm, "time_point":time_points, "error":errors})
+        sns.lineplot(data=error_r_data_to_plot, x="time_point", y="error", hue="algorithm", legend="brief")
+
+        plt.title("Rotation error comparison")
+        plt.grid(axis='y')
+        plt.ylabel("Rotation error")
+        plt.xlabel("Runtime")
+
+        plt.show()
+        plt.clf()
+
+def compare_aggregate_by_time(present_sequences:list, sample_p3p_data:dict, recon_data:dict):
+
+
+def main(dataset_name:str):
+    present_sequences = ['seq1', 'seq3'] #TODO: vary this for different scenes
+
+    gt_dirs = Path("./datasets/cambridge/CambridgeLandmarks_Colmap_Retriangulated_1024px")
+    model_path = gt_dirs / dataset_name / "empty_all"
+    list_file =  gt_dirs / dataset_name / "list_query.txt"
+
+    results_paths = {"p3p":Path(f"./outputs/cambridge/{dataset_name}/results.txt"),"RECON":Path(f"./outputs_recon/cambridge/{dataset_name}/results.txt")}
+
+    iteration_bounds = [5, 25, 100, 200, 500, 1000, 5000, 7000, 10000]
+    num_repetitions = 30
+
+    sample_p3p_data = evaluate_sampled(model_path,results_paths['p3p'],iteration_bounds, num_repetitions, present_sequences, list_file,ext=".txt",sort_errors_by_time=False) #TODO: note sorting here
+    recon_data = evaluate_standard(model_path,results_paths['RECON'],present_sequences, list_file,ext=".txt")
+
+    #plot by frame #valid only for 09d447ad06276852fade825ee41d8f6dad0cfabf
+    # idx = 0
+    # for recon_t, recon_r, recon_time, p3p_t, p3p_r, p3p_time in zip(*recon_data, *sample_p3p_data):
+    #     plot_series_and_point(p3p_time,p3p_r,recon_time,recon_r,"Rotation error", "Rotation error progression", f"./plots/comparisons/r_err_prog{idx}.png")
+    #     plot_series_and_point(p3p_time,p3p_t,recon_time,recon_t,"Translation error", "Translation error progression", f"./plots/comparisons/t_err_prog{idx}.png")
+
+    #     idx += 1
+
+    compare_aggregate_by_bound(present_sequences,sample_p3p_data, recon_data)
 
 if __name__ == "__main__":
     main(sys.argv[1])
