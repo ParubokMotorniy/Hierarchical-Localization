@@ -141,9 +141,6 @@ class QueryLocalizer:
         recon_opts = {'outerIterations': 400, 'nP3pSamples': 15, 'nBestModelsConsidered': 3, 'randSeed': 89,
                       'strictConsistencyAlpha': 0.99, 'nRECONStrictModels': 3, 'p3pInlierThreshold': 35.0,
                       'up2pInlierThreshold': 35.0, 'nOuterUp2pPoses': 3, 'nInlierSetsRequired': 1, 'failure_probability' : 0.85}
-        ransac_opts = {'max_reproj_error': 35, 'min_iterations': 50, 'max_iterations': 400, 'seed': 19 + 42,
-                       'max_grav_error': 0.04, 'max_p3p_inlier_increase': 1.4, 'inner_iterations': 60,
-                       'max_inner_error': 8.0}
 
         # cam, inliers = poselib.estimate_absolute_pose(points2D, points3D, cam_to_use, ransac_opts, refinement_opts_to_use)
         time_start = process_time_ns()

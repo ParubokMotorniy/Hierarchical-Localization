@@ -72,7 +72,7 @@ def evaluate_standard(model, results,  sequences:list, list_file=None, ext=".bin
     # print("Recon error data:", per_sequence_error_data)
     return per_sequence_error_data
 
-def evaluate_sampled(model, results, iterations_bounds:list, repetitions_per_bound:int, sequences:list, num_repetitions_considered:int, list_file=None, ext=".bin", only_localized=False, sort_errors_by_time=True):
+def evaluate_sampled(model, results, iterations_bounds:list, repetitions_per_bound:int, sequences:list, num_repetitions_considered:int, list_file=None, ext=".bin", only_localized=False, sort_errors_by_time=True, default_rot_error:int=90, default_trans_error:int=5):
     predictions = {}
 
     with open(results, "r") as f:
@@ -94,7 +94,15 @@ def evaluate_sampled(model, results, iterations_bounds:list, repetitions_per_bou
                     q, t, time = np.split(np.array(data[1:], float), [4,7])
                     t = t[:3]
                     time = time[0]
-                    predictions[name][iterations_upper_bound].append((qvec2rotmat(q), t, time))
+                    if_no_error = not np.all([i == 2 for i in q]) #cosine can not exceed 1
+
+                    print(f"?? RECON results string: {data} ??")
+                    if if_no_error:
+                        print(f"++ RECON found inlier set estimate for {name} within {iterations_upper_bound} iterations ++")
+                    else:
+                        print(f"-- RECON FAILED to find inlier set estimate for {name} within {iterations_upper_bound} iterations --")
+
+                    predictions[name][iterations_upper_bound].append((qvec2rotmat(q), t, time, if_no_error))
 
                     idx += 1
 
@@ -132,11 +140,11 @@ def evaluate_sampled(model, results, iterations_bounds:list, repetitions_per_bou
                 local_time = []
 
                 for i in range(repetitions_per_bound):
-                    R, t, time = predictions[name][iterations_upper_bound][i]
+                    R, t, time, if_no_error = predictions[name][iterations_upper_bound][i]
 
-                    e_t = np.linalg.norm(-R_gt.T @ t_gt + R.T @ t, axis=0)
+                    e_t = np.linalg.norm(-R_gt.T @ t_gt + R.T @ t, axis=0) if if_no_error else default_trans_error
                     cos = np.clip((np.trace(np.dot(R_gt.T, R)) - 1) / 2, -1.0, 1.0)
-                    e_R = np.rad2deg(np.abs(np.arccos(cos)))
+                    e_R = np.rad2deg(np.abs(np.arccos(cos))) if if_no_error else default_rot_error
 
                     local_err_r.append(e_R)
                     local_err_t.append(e_t)
@@ -146,9 +154,9 @@ def evaluate_sampled(model, results, iterations_bounds:list, repetitions_per_bou
                 # print('Iteration bound local r:', local_err_r)
                 # print('Iteration bound local time:', local_time)
 
-                localizer_progress_r.append(np.mean(local_err_r[:num_repetitions_considered]))
-                localizer_progress_t.append(np.mean(local_err_t[:num_repetitions_considered]))
-                localizer_progress_time.append(np.mean(local_time[:num_repetitions_considered]))
+                localizer_progress_r.append(np.median(local_err_r[:num_repetitions_considered]))
+                localizer_progress_t.append(np.median(local_err_t[:num_repetitions_considered]))
+                localizer_progress_time.append(np.median(local_time[:num_repetitions_considered]))
 
             # print("\nImage progress t:", localizer_progress_t)
             # print("Image progress r:", localizer_progress_r)
@@ -167,7 +175,7 @@ def evaluate_sampled(model, results, iterations_bounds:list, repetitions_per_bou
                 per_sequence_error_data[sequence_name]['errors_R'].append(localizer_progress_r[sort_indices])
                 per_sequence_error_data[sequence_name]['durations'].append(localizer_progress_time[sort_indices])
 
-    #sequence -> stat -> lists of values sorted by time (for each bound) for each frame in that sequence
+    #sequence -> statistic -> lists of values sorted by time (for each bound) for each frame in that sequence
     for seq_name in per_sequence_error_data.keys():
         per_sequence_error_data[seq_name]['errors_t'] = np.array(per_sequence_error_data[seq_name]['errors_t'])
         per_sequence_error_data[seq_name]['errors_R'] = np.array(per_sequence_error_data[seq_name]['errors_R'])
@@ -357,6 +365,7 @@ def compare_interpolate(present_sequences:list, sample_p3p_data:dict, recon_data
         plt.clf()
         plt.cla()
 
+#works for zero-shot RECON results and iteration-limit p3p results
 def compare_aggregate_by_bound(present_sequences:list, sample_p3p_data:dict, recon_data:dict, iteration_bounds:list):
     available_statistics = ['errors_t', 'errors_R', 'durations']
 
@@ -477,7 +486,116 @@ def compare_aggregate_by_bound(present_sequences:list, sample_p3p_data:dict, rec
 
         plt.clf()
 
-def compare_aggregate_by_time(present_sequences:list, sample_p3p_data:dict, recon_data:dict, iteration_bounds:list, n_time_points:int = 7, n_time_points_recon:int = 7):
+#works for iteration_limit RECON results and iteration-limit p3p results
+def compare_aggregate_by_bound_both(present_sequences:list, sample_p3p_data:dict, sample_recon_data:dict, iteration_bounds_p3p:list, iteration_bounds_recon:list):
+    available_statistics = ['errors_t', 'errors_R', 'durations']
+
+    for seq_name in present_sequences:
+        print(f"\n-----[ Processing sequence {seq_name} ]-----\n")
+
+        #p3p processing
+        targets = []
+
+        seq_data = sample_p3p_data[seq_name]
+
+        for statistic in available_statistics:
+            statistics_data = np.array(seq_data[statistic])
+            targets.append(np.median(statistics_data, axis=0))
+
+        p3p_median_error_t = targets[0]
+        p3p_median_error_r = targets[1]
+        p3p_median_time = targets[2]
+
+        print(f"Median p3p translation data: {p3p_median_error_t}")
+        print(f"Median p3p rotation data: {p3p_median_error_r}")
+        print(f"Median p3p time data: {p3p_median_time}")
+
+        #recon processing
+
+        targets = []
+
+        seq_data = sample_recon_data[seq_name]
+
+        for statistic in available_statistics:
+            statistics_data = np.array(seq_data[statistic])
+            targets.append(np.median(statistics_data, axis=0))
+
+        recon_median_error_t = targets[0]
+        recon_median_error_r = targets[1]
+        recon_median_time = targets[2]
+
+        print(f"Median recon translation data: {recon_median_error_t}")
+        print(f"Median recon rotation data: {recon_median_error_r}")
+        print(f"Median recon time data: {recon_median_time}")
+
+        #plotting
+
+        ##translation
+        metric = []
+        time_points = []
+        errors = []
+        for error, time_point in zip(p3p_median_error_t, p3p_median_time):
+            metric.append("p3p_accuracy")
+            time_points.append(time_point)
+            errors.append(error)
+
+        for error, time_point in zip(recon_median_error_t, recon_median_time):
+            metric.append("recon_accuracy")
+            time_points.append(time_point)
+            errors.append(error)
+
+        error_t_data_to_plot = pd.DataFrame.from_dict({"metric":metric, "time_point":time_points, "error":errors})
+        sns.lineplot(data=error_t_data_to_plot, x="time_point", y="error", hue="metric", style="metric", legend="brief")
+
+        plt.title(f"Translation error comparison; Sequence: {seq_name};\nP3P iteration limits: {iteration_bounds_p3p};\nRECON iteration limits: {iteration_bounds_recon}")
+        plt.grid(axis='y')
+        plt.ylabel("Translation error")
+        plt.xlabel("Runtime (ms)")
+
+        fig = plt.gcf()
+        fig.set_size_inches(9, 7)
+
+        plt.savefig(f"./plots/sequence_error_progression/aggregate_bound_both_translation_error_{seq_name}.png", dpi=1300,
+                    bbox_inches='tight',
+                    facecolor='floralwhite')
+        # plt.show()
+
+        plt.clf()
+
+        ##rotation
+        metric = []
+        time_points = []
+        errors = []
+        for error, time_point in zip(p3p_median_error_r, p3p_median_time):
+            metric.append("p3p_accuracy")
+            time_points.append(time_point)
+            errors.append(error)
+
+        for error, time_point in zip(recon_median_error_r, recon_median_time):
+            metric.append("recon_accuracy")
+            time_points.append(time_point)
+            errors.append(error)
+
+        error_r_data_to_plot = pd.DataFrame.from_dict({"metric":metric, "time_point":time_points, "error":errors})
+        sns.lineplot(data=error_r_data_to_plot, x="time_point", y="error", hue="metric", style="metric", legend="brief")
+
+        plt.title(f"Rotation error comparison; Sequence: {seq_name};\nP3P iteration limits: {iteration_bounds_p3p};\nRECON iteration limits: {iteration_bounds_recon}")
+        plt.grid(axis='y')
+        plt.ylabel("Rotation error")
+        plt.xlabel("Runtime (ms)")
+
+        fig = plt.gcf()
+        fig.set_size_inches(9, 7)
+
+        plt.savefig(f"./plots/sequence_error_progression/aggregate_bound_both_rotation_error_{seq_name}.png", dpi=1300,
+                    bbox_inches='tight',
+                    facecolor='floralwhite')
+        # plt.show()
+
+        plt.clf()
+
+#works for zero-shot RECON results and iteration-limit p3p results
+def compare_aggregate_by_time(present_sequences:list, sample_p3p_data:dict, recon_data:dict, iteration_bounds:list, n_time_points:int = 7, n_time_points_recon:int = 3, default_rot_error:int=3, default_trans_error:int=3):
     for seq_name in present_sequences:
         print(f"\n-----[ Processing sequence {seq_name} ]-----\n")
 
@@ -506,10 +624,12 @@ def compare_aggregate_by_time(present_sequences:list, sample_p3p_data:dict, reco
 
                 fitting_indices.append(best_time_idx)
 
-            indexed_errors_t = [errors_t[idx] for idx, errors_t in zip(fitting_indices, seq_data['errors_t']) if
-                                idx is not None]
-            indexed_errors_r = [errors_r[idx] for idx, errors_r in zip(fitting_indices, seq_data['errors_R']) if
-                                idx is not None]
+            indexed_errors_t = []
+            indexed_errors_r = []
+
+            for idx, errors_t, errors_r in zip(fitting_indices, seq_data['errors_t'], seq_data['errors_R']):
+                indexed_errors_t.append(errors_t[idx] if idx is not None else default_trans_error)
+                indexed_errors_r.append(errors_r[idx] if idx is not None else default_rot_error)
 
             #            print(f"Fitting errors t: {indexed_errors_t}")
             #            print(f"Fitting errors r: {indexed_errors_r}")
@@ -618,8 +738,155 @@ def compare_aggregate_by_time(present_sequences:list, sample_p3p_data:dict, reco
         plt.clf()
 
 
-def main(dataset_name:str, if_generalize_for_dataset:bool):
-    present_sequences = ['seq1', 'seq3'] #TODO: vary this for different scenes
+#works for iteration-limit RECON results and iteration-limit p3p results
+def compare_aggregate_by_time_both(present_sequences:list, sample_p3p_data:dict, sample_recon_data:dict, iteration_bounds_p3p:list, iteration_bounds_recon:list, n_time_points:int = 10, default_rot_error:int=3, default_trans_error:int=3):
+    for seq_name in present_sequences:
+        print(f"\n-----[ Processing sequence {seq_name} ]-----\n")
+
+        #p3p processing
+
+        seq_data = sample_p3p_data[seq_name]
+
+        p3p_time_points = np.linspace(np.min([np.min(frame_time_data) for frame_time_data in seq_data['durations']]),
+                                      np.max([np.max(frame_time_data) for frame_time_data in seq_data['durations']]),
+                                      n_time_points+1)
+        p3p_time_points = p3p_time_points[1:] #skipping the first one
+
+        print(f"Computed time points for p3p: {p3p_time_points}; P3P iteration limits: {iteration_bounds_p3p}")
+
+        translation_error_medians_over_time_frames = []
+        rotation_error_medians_over_time_frames = []
+
+        for time_point in p3p_time_points:
+            fitting_indices = [] #enumerates the best result indices for all frames
+
+            for frame_time_data in seq_data['durations']: #over lists of durations (for each frame)
+                best_time_idx = None
+                for idx, result_time_point in enumerate(frame_time_data):
+                    if result_time_point <= time_point:
+                        best_time_idx = idx
+
+                fitting_indices.append(best_time_idx)
+
+            indexed_errors_t = []
+            indexed_errors_r = []
+
+            for idx, errors_t, errors_r in zip(fitting_indices, seq_data['errors_t'], seq_data['errors_R']):
+                indexed_errors_t.append(errors_t[idx] if idx is not None else default_trans_error)
+                indexed_errors_r.append(errors_r[idx] if idx is not None else default_rot_error)
+
+            translation_error_medians_over_time_frames.append(np.median(indexed_errors_t))
+            rotation_error_medians_over_time_frames.append(np.median(indexed_errors_r))
+
+        #recon processing
+
+        recon_seq_data = sample_recon_data[seq_name]
+
+        recon_time_points = np.linspace(np.min([np.min(frame_time_data) for frame_time_data in recon_seq_data['durations']]),
+                                      np.max([np.max(frame_time_data) for frame_time_data in recon_seq_data['durations']]),
+                                      n_time_points+1)
+        recon_time_points = recon_time_points[1:] #skipping the first one
+
+        print(f"Computed time points for recon: {recon_time_points}; RECON iteration limits: {iteration_bounds_recon}")
+
+        translation_error_medians_over_time_frames_recon = []
+        rotation_error_medians_over_time_frames_recon = []
+
+        for time_point in recon_time_points:
+            fitting_indices = [] #enumerates the best result indices for all frames
+
+            for frame_time_data in recon_seq_data['durations']: #over lists of durations (for each frame)
+                best_time_idx = None
+                for idx, result_time_point in enumerate(frame_time_data):
+                    if result_time_point <= time_point:
+                        best_time_idx = idx
+
+                fitting_indices.append(best_time_idx)
+
+            indexed_errors_t = []
+            indexed_errors_r = []
+
+            for idx, errors_t, errors_r in zip(fitting_indices, recon_seq_data['errors_t'], recon_seq_data['errors_R']):
+                indexed_errors_t.append(errors_t[idx] if idx is not None else default_trans_error)
+                indexed_errors_r.append(errors_r[idx] if idx is not None else default_rot_error)
+
+            #            print(f"Fitting errors t: {indexed_errors_t}")
+            #            print(f"Fitting errors r: {indexed_errors_r}")
+
+            translation_error_medians_over_time_frames_recon.append(np.median(indexed_errors_t))
+            rotation_error_medians_over_time_frames_recon.append(np.median(indexed_errors_r))
+
+        #        print(f"Final translation errors: {translation_error_medians_over_time_frames}")
+        #        print(f"Final rotation errors: {rotation_error_medians_over_time_frames}")
+
+        #plotting
+
+        ##translation
+        metric = []
+        time_points = []
+        errors = []
+        for error, time_point in zip(translation_error_medians_over_time_frames, p3p_time_points):
+            metric.append("p3p_accuracy")
+            time_points.append(time_point)
+            errors.append(error)
+
+        for error, time_point in zip(translation_error_medians_over_time_frames_recon, recon_time_points):
+            metric.append("recon_accuracy")
+            time_points.append(time_point)
+            errors.append(error)
+
+        error_t_data_to_plot = pd.DataFrame.from_dict({"metric":metric, "time_point":time_points, "error":errors})
+        sns.lineplot(data=error_t_data_to_plot, x="time_point", y="error", hue="metric", style="metric", legend="brief")
+
+        plt.title(f"Translation error comparison; Sequence: {seq_name};\nP3P iteration limits: {iteration_bounds_p3p};\nRECON iteration limits: {iteration_bounds_recon}")
+        plt.grid(axis='y')
+        plt.ylabel("Translation error")
+        plt.xlabel("Runtime (ms)")
+
+        fig = plt.gcf()
+        fig.set_size_inches(9, 7)
+
+        plt.savefig(f"./plots/sequence_error_progression/aggregate_time_both_translation_error_{seq_name}.png", dpi=1300,
+                    bbox_inches='tight',
+                    facecolor='floralwhite')
+        # plt.show()
+
+        plt.clf()
+
+        ##rotation
+        metric = []
+        time_points = []
+        errors = []
+        for error, time_point in zip(rotation_error_medians_over_time_frames, p3p_time_points):
+            metric.append("p3p_accuracy")
+            time_points.append(time_point)
+            errors.append(error)
+
+        for error, time_point in zip(rotation_error_medians_over_time_frames_recon, recon_time_points):
+            metric.append("recon_accuracy")
+            time_points.append(time_point)
+            errors.append(error)
+
+        error_r_data_to_plot = pd.DataFrame.from_dict({"metric":metric, "time_point":time_points, "error":errors})
+        sns.lineplot(data=error_r_data_to_plot, x="time_point", y="error", hue="metric", style="metric", legend="brief")
+
+        plt.title(f"Rotation error comparison; Sequence: {seq_name};\nP3P iteration limits: {iteration_bounds_p3p};\nRECON iteration limits: {iteration_bounds_recon}")
+        plt.grid(axis='y')
+        plt.ylabel("Rotation error")
+        plt.xlabel("Runtime (ms)")
+
+        fig = plt.gcf()
+        fig.set_size_inches(9, 7)
+
+        plt.savefig(f"./plots/sequence_error_progression/aggregate_time_both_rotation_error_{seq_name}.png", dpi=1300,
+                    bbox_inches='tight',
+                    facecolor='floralwhite')
+        # plt.show()
+
+        plt.clf()
+
+def main_sample_p3p(dataset_name:str, if_generalize_for_dataset:bool):
+    present_sequences = ['seq3', 'seq5', 'seq15'] #TODO: vary this for different scenes
 
     gt_dirs = Path("./datasets/cambridge/CambridgeLandmarks_Colmap_Retriangulated_1024px")
     model_path = gt_dirs / dataset_name / "empty_all"
@@ -627,10 +894,10 @@ def main(dataset_name:str, if_generalize_for_dataset:bool):
 
     results_paths = {"p3p":Path(f"./outputs/cambridge/{dataset_name}/results.txt"),"RECON":Path(f"./outputs_recon/cambridge/{dataset_name}/results.txt")}
 
-    iteration_bounds = [5, 25, 100, 200, 500, 1000, 5000, 7000, 10000]
-    num_repetitions = 30
+    iteration_bounds_p3p = [25, 100, 200, 500, 1000, 5000, 7000, 10000]
+    num_repetitions_p3p = 30
 
-    sample_p3p_data = evaluate_sampled(model_path,results_paths['p3p'],iteration_bounds, num_repetitions, present_sequences, 1,list_file,ext=".txt",sort_errors_by_time=False) #TODO: note sorting here
+    sample_p3p_data = evaluate_sampled(model_path,results_paths['p3p'],iteration_bounds_p3p, num_repetitions_p3p, present_sequences, 30,list_file,ext=".txt",sort_errors_by_time=False) #TODO: note sorting here
     recon_data = evaluate_standard(model_path,results_paths['RECON'],present_sequences, list_file,ext=".txt")
 
     if if_generalize_for_dataset: #if the data has to be aggregated for the entire dataset
@@ -650,8 +917,48 @@ def main(dataset_name:str, if_generalize_for_dataset:bool):
 
         present_sequences = ['entire_set']
 
-    compare_aggregate_by_bound(present_sequences, sample_p3p_data, recon_data, iteration_bounds)
-    compare_aggregate_by_time(present_sequences, sample_p3p_data, recon_data, iteration_bounds, 45,7)
+    compare_aggregate_by_bound(present_sequences, sample_p3p_data, recon_data, iteration_bounds_p3p)
+    compare_aggregate_by_time(present_sequences, sample_p3p_data, recon_data, iteration_bounds_p3p, 45,7)
+
+def main_sample_both(dataset_name:str, if_generalize_for_dataset:bool):
+    present_sequences = ['seq3', 'seq5', 'seq15'] #TODO: vary this for different scenes
+
+    gt_dirs = Path("./datasets/cambridge/CambridgeLandmarks_Colmap_Retriangulated_1024px")
+    model_path = gt_dirs / dataset_name / "empty_all"
+    list_file =  gt_dirs / dataset_name / "list_query.txt"
+
+    results_paths = {"p3p":Path(f"./outputs/cambridge/{dataset_name}/p3p/results.txt"),"RECON":Path(f"./outputs/cambridge/{dataset_name}/recon/results.txt")}
+
+    #[5, 25, 100, 200, 500, 1000, 5000, 7000, 10000]
+    iteration_bounds_p3p = [25, 100, 200, 500, 1000, 5000, 7000, 10000]
+    num_repetitions_p3p = 30
+
+    iteration_bounds_recon = [100, 200, 500, 1000, 3000, 5000]
+    num_repetitions_recon = 30
+
+    sample_recon_data = evaluate_sampled(model_path,results_paths['RECON'],iteration_bounds_recon, num_repetitions_recon, present_sequences, num_repetitions_recon,list_file,ext=".txt",sort_errors_by_time=False) #TODO: note sorting here
+    sample_p3p_data = evaluate_sampled(model_path,results_paths['p3p'],iteration_bounds_p3p, num_repetitions_p3p, present_sequences, num_repetitions_p3p,list_file,ext=".txt",sort_errors_by_time=False) #TODO: note sorting here
+
+    if if_generalize_for_dataset: #if the data has to be aggregated for the entire dataset
+        sample_p3p_data['entire_set'] = {}
+        sample_p3p_data["entire_set"]['durations'] = [duration_data for seq_name in present_sequences for duration_data in sample_p3p_data[seq_name]['durations']]
+        sample_p3p_data["entire_set"]['errors_t'] = [error_data for seq_name in present_sequences for error_data in sample_p3p_data[seq_name]['errors_t']]
+        sample_p3p_data["entire_set"]['errors_R'] = [error_data for seq_name in present_sequences for error_data in sample_p3p_data[seq_name]['errors_R']]
+        for seq_name in present_sequences:
+            sample_p3p_data.pop(seq_name)
+
+        sample_recon_data['entire_set'] = {}
+        sample_recon_data["entire_set"]['durations'] = [duration_data for seq_name in present_sequences for duration_data in sample_recon_data[seq_name]['durations']]
+        sample_recon_data["entire_set"]['errors_t'] = [error_data for seq_name in present_sequences for error_data in sample_recon_data[seq_name]['errors_t']]
+        sample_recon_data["entire_set"]['errors_R'] = [error_data for seq_name in present_sequences for error_data in sample_recon_data[seq_name]['errors_R']]
+        for seq_name in present_sequences:
+            sample_recon_data.pop(seq_name)
+
+        present_sequences = ['entire_set']
+
+    compare_aggregate_by_bound_both(present_sequences, sample_p3p_data, sample_recon_data, iteration_bounds_p3p, iteration_bounds_recon)
+    compare_aggregate_by_time_both(present_sequences, sample_p3p_data, sample_recon_data, iteration_bounds_p3p, iteration_bounds_recon,10)
 
 if __name__ == "__main__":
-    main(sys.argv[1], True if (len(sys.argv) > 2 and sys.argv[2] == "1") else False)
+    # main_sample_p3p(sys.argv[1], True if (len(sys.argv) > 2 and sys.argv[2] == "1") else False)
+    main_sample_both(sys.argv[1], True if (len(sys.argv) > 2 and sys.argv[2] == "1") else False)

@@ -4,15 +4,17 @@ import pickle
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Union
-from time import process_time_ns
 
 import numpy as np
+import poselib
 import pycolmap
 from tqdm import tqdm
+from time import process_time_ns
 
 from . import logger
 from .utils.io import get_keypoints, get_matches
 from .utils.parsers import parse_image_lists, parse_retrieval
+
 
 def do_covisibility_clustering(
     frame_ids: List[int], reconstruction: pycolmap.Reconstruction
@@ -56,23 +58,88 @@ class QueryLocalizer:
         self.reconstruction = reconstruction
         self.config = config or {}
 
-    def update_config(self, new_config: Dict):
-        self.config = new_config
+    def colmapQueryCamToDict(self, query_camera_to_convert: pycolmap.Camera):
+        dict_camera = dict()
+        dict_camera["model"] = str(query_camera_to_convert.model).split('.')[1]
+        dict_camera["width"] = query_camera_to_convert.width
+        dict_camera["height"] = query_camera_to_convert.height
+        dict_camera["params"] = query_camera_to_convert.params
+        return dict_camera
 
-    def localize(self, points2D_all, points2D_idxs, points3D_id, query_camera):
+    def dictToColmapCamera(self, camera_to_convert: dict):
+        colmapCamera = pycolmap.Camera
+        colmapCamera.model = camera_to_convert["model"]
+        colmapCamera.width = camera_to_convert["width"]
+        colmapCamera.height = camera_to_convert["height"]
+        colmapCamera.params = [param for param in camera_to_convert["params"]]
+        return colmapCamera
+
+    def addRefinementOption(self, options_src, options_tar, key_source, key_target):
+        if key_source in options_src:
+            options_tar[key_target] = options_src[key_source]
+
+    def transformPointsToPoselib(self, colmap_points):
+        poselib_points = [point.astype(np.float64) for point in colmap_points]
+        return poselib_points
+
+    def transformPoselibPoseToColmapPose(self, poselib_pose:poselib.CameraPose):
+        quat = poselib_pose.q
+        trans = poselib_pose.t
+
+        quat_arr = [[component] for component in quat[1:]]
+        quat_arr.append([quat[0]])
+        colmap_rotation = pycolmap.Rotation3d(np.array(quat_arr, dtype=np.float64))
+
+        colmap_translation = np.array([[component] for component in trans], dtype=np.float64)
+        colmap_pose = pycolmap.Rigid3d(colmap_rotation, colmap_translation)
+        return colmap_pose
+
+    def transformPoselibMaskToColmapMask(self, poselib_list_of_bools):
+        colmap_mask = np.array([np.bool_(if_inlier) for if_inlier in poselib_list_of_bools], dtype=np.bool_)
+        return colmap_mask
+
+    def countInliers(self, poselib_list_of_bools):
+        num_inliers = 0
+        for if_inlier in poselib_list_of_bools:
+            if if_inlier:
+                num_inliers += 1
+
+        return num_inliers
+    def localizeRECON(self, points2D_all, points2D_idxs, points3D_id, query_camera, outer_iteration_limit:int):
         points2D = points2D_all[points2D_idxs]
         points3D = [self.reconstruction.points3D[j].xyz for j in points3D_id]
+        points2D = self.transformPointsToPoselib(points2D)
+        points3D = self.transformPointsToPoselib(points3D)
+
+        cam_to_use = query_camera
+        if isinstance(query_camera, pycolmap.Camera):
+            cam_to_use = self.colmapQueryCamToDict(query_camera)
+
+        refinement_options = self.config.get("refinement", {})
+
+        refinement_opts_to_use = dict()
+        if isinstance(refinement_options, pycolmap.AbsolutePoseRefinementOptions):
+            refinement_opts_to_use["loss_scale"] = refinement_options.loss_function_scale
+            refinement_opts_to_use["max_iterations"] = refinement_options.max_num_iterations
+            refinement_opts_to_use["gradient_tol"] = refinement_options.gradient_tolerance
+        elif isinstance(refinement_options, dict):
+            self.addRefinementOption(refinement_options,refinement_opts_to_use, "loss_function_scale","loss_scale")
+            self.addRefinementOption(refinement_options,refinement_opts_to_use, "max_num_iterations","max_iterations")
+            self.addRefinementOption(refinement_options,refinement_opts_to_use, "gradient_tolerance","gradient_tol")
+
+        recon_opts = {'outerIterations': {outer_iteration_limit}, 'nP3pSamples': 15, 'nBestModelsConsidered': 3, 'randSeed': 89,
+                      'strictConsistencyAlpha': 0.99, 'nRECONStrictModels': 3, 'p3pInlierThreshold': 35.0,
+                      'up2pInlierThreshold': 35.0, 'nOuterUp2pPoses': 3, 'nInlierSetsRequired': 1, 'failure_probability' : 0.85}
 
         time_start = process_time_ns()
-        ret = pycolmap.absolute_pose_estimation(
-            points2D,
-            points3D,
-            query_camera,
-            estimation_options=self.config.get("estimation", {}),
-            refinement_options=self.config.get("refinement", {}),
-        )
+        camR, inliersR = poselib.RECON_threshold_solver_iterations_bounded(points2D, points3D, cam_to_use, recon_opts, refinement_opts_to_use)
         time_end = process_time_ns()
-        ret["time"] = math.floor((time_end - time_start) / 1000000) #getting milliseconds
+
+        ret = {}
+        ret["cam_from_world"] = self.transformPoselibPoseToColmapPose(camR)
+        ret["num_inliers"] = len(inliersR["inliers"])
+        ret["inliers"] = self.transformPoselibMaskToColmapMask(inliersR["inlierMask"])
+        ret["time"] = math.floor((time_end - time_start) / 1000000)
 
         return ret
 
@@ -83,6 +150,7 @@ def pose_from_cluster(
         db_ids: List[int],
         features_path: Path,
         matches_path: Path,
+        recon_iteration_limit:int,
         **kwargs,
 ):
     kpq = get_keypoints(features_path, qname)
@@ -113,7 +181,7 @@ def pose_from_cluster(
     idxs = list(kp_idx_to_3D.keys())
     mkp_idxs = [i for i in idxs for _ in kp_idx_to_3D[i]]
     mp3d_ids = [j for i in idxs for j in kp_idx_to_3D[i]]
-    ret = localizer.localize(kpq, mkp_idxs, mp3d_ids, query_camera, **kwargs)
+    ret = localizer.localizeRECON(kpq, mkp_idxs, mp3d_ids, query_camera, recon_iteration_limit)
 
     if ret is not None:
         ret["camera"] = query_camera
@@ -146,10 +214,10 @@ def main(
         prepend_camera_name: bool = False,
         config: Dict = None,
         iterations_bounds=None,
-        iteration_repetitions:int = 30
+        iteration_repetitions:int = 30,
 ):
     if iterations_bounds is None or isinstance(iterations_bounds, list):
-        iterations_bounds = [25, 100, 200, 500, 1000, 5000, 7000, 10000]
+        iterations_bounds = [100, 200, 500, 1000, 3000, 5000]
 
     assert retrieval.exists(), retrieval
     assert features.exists(), features
@@ -163,7 +231,7 @@ def main(
         reference_sfm = pycolmap.Reconstruction(reference_sfm)
     db_name_to_id = {img.name: i for i, img in reference_sfm.images.items()}
 
-    config = {"estimation": {"ransac": {"max_error": ransac_thresh, "min_num_trials" : 1, "max_num_trials":1}}, **(config or {})}
+    config = {"estimation": {"ransac": {"max_error": ransac_thresh}}, **(config or {})}
     localizer = QueryLocalizer(reference_sfm, config)
 
     cam_from_world = {}
@@ -189,15 +257,11 @@ def main(
         cam_from_world[qname] = {num_iter : [] for num_iter in iterations_bounds}
 
         for iterations_upper_bound in iterations_bounds:
-            config['estimation']['ransac']['min_num_trials'] = iterations_upper_bound
-            config['estimation']['ransac']['max_num_trials'] = iterations_upper_bound
-            localizer.update_config(config)
-
             print(f"[ {qname} : {iterations_upper_bound} ]")
 
             for i in range(iteration_repetitions):
                 ret, log = pose_from_cluster(
-                   localizer, qname, qcam, db_ids, features, matches
+                    localizer, qname, qcam, db_ids, features, matches, iterations_upper_bound
                 )
 
                 if ret is not None:
@@ -207,10 +271,10 @@ def main(
                     rec_time = ret["time"]
                     # print(f"[{iterations_upper_bound} : {i}] Recorded time: {rec_time}")
 
-                    cam_from_world[qname][iterations_upper_bound].append((ret["cam_from_world"],ret["time"]))
+                    cam_from_world[qname][iterations_upper_bound].append((ret["cam_from_world"], ret["time"], ret["num_inliers"] > 0))
                 else:
                     closest = reference_sfm.images[db_ids[0]]
-                    cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1))
+                    cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1, False))
 
                 log["covisibility_clustering"] = covisibility_clustering
                 logs["loc"][qname] = log
@@ -220,9 +284,9 @@ def main(
     with open(results, "w") as f:
         for query, iteration_data in cam_from_world.items():
             for iterations_upper_bound, data_list in iteration_data.items():
-                for t, time in data_list:
-                    qvec = " ".join(map(str, t.rotation.quat[[3, 0, 1, 2]]))
-                    tvec = " ".join(map(str, t.translation))
+                for t, time, success in data_list:
+                    qvec = " ".join(map(str, t.rotation.quat[[3, 0, 1, 2]])) if success else "2 2 2 2" #cosine can never be > 1
+                    tvec = " ".join(map(str, t.translation)) if success else "-1 -1 -1"
                     name = query.split("/")[-1]
                     if prepend_camera_name:
                         name = query.split("/")[-2] + "/" + name

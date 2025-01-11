@@ -4,6 +4,7 @@ from pathlib import Path
 from ... import (
     extract_features,
     localize_sfm_p3p_sample,
+    localize_sfm_recon_sample,
     logger,
     match_features,
     pairs_from_covisibility,
@@ -15,8 +16,7 @@ from .utils import create_query_list_with_intrinsics, evaluate, scale_sfm_images
 
 SCENES = ["KingsCollege", "OldHospital", "ShopFacade", "StMarysChurch", "GreatCourt"]
 
-
-def run_scene(images, gt_dir, outputs, results, num_covis, num_loc):
+def run_scene(images, gt_dir, outputs, results, num_covis, num_loc, solver):
     ref_sfm_sift = gt_dir / "model_train"
     test_list = gt_dir / "list_query.txt"
 
@@ -72,16 +72,28 @@ def run_scene(images, gt_dir, outputs, results, num_covis, num_loc):
         matcher_conf, loc_pairs, feature_conf["output"], outputs
     )
 
-    localize_sfm_p3p_sample.main( #or simple localizer, but with RECON
-        ref_sfm,
-        query_list,
-        loc_pairs,
-        features,
-        loc_matches,
-        results,
-        covisibility_clustering=False,
-        prepend_camera_name=True,
-    )
+    if solver == "p3p":
+        localize_sfm_p3p_sample.main(
+            ref_sfm,
+            query_list,
+            loc_pairs,
+            features,
+            loc_matches,
+            results,
+            covisibility_clustering=False,
+            prepend_camera_name=True,
+        )
+    elif solver == "recon":
+        localize_sfm_recon_sample.main(
+            ref_sfm,
+            query_list,
+            loc_pairs,
+            features,
+            loc_matches,
+            results,
+            covisibility_clustering=False,
+            prepend_camera_name=True,
+        )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -111,6 +123,12 @@ if __name__ == "__main__":
         default=10,
         help="Number of image pairs for loc, default: %(default)s",
     )
+    parser.add_argument(
+        "--solver",
+        type=str,
+        default="p3p",
+        help="Solver to use for localization, default: %(default)s",
+    )
     args = parser.parse_args()
 
     gt_dirs = args.dataset / "CambridgeLandmarks_Colmap_Retriangulated_1024px"
@@ -127,14 +145,6 @@ if __name__ == "__main__":
                 results,
                 args.num_covis,
                 args.num_loc,
+                args.solver
             )
         all_results[scene] = results
-
-    # for scene in args.scenes:
-    #     logger.info(f'Evaluate scene "{scene}".')
-    #     evaluate(
-    #         gt_dirs / scene / "empty_all",
-    #         all_results[scene],
-    #         gt_dirs / scene / "list_query.txt",
-    #         ext=".txt",
-    #     )
