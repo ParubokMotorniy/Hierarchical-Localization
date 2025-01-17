@@ -1,11 +1,13 @@
 import argparse
 from pathlib import Path
 from pprint import pformat
+import pycolmap
 
 from ... import (
     colmap_from_nvm,
     extract_features,
-    localize_sfm,
+    localize_sfm_poselib_sample,
+    localize_sfm_colmap_sample,
     logger,
     match_features,
     pairs_from_covisibility,
@@ -13,6 +15,7 @@ from ... import (
     triangulation,
 )
 
+solver_map = {"p3p":pycolmap.absolute_pose_estimation}
 
 def run(args):
     # Setup the paths
@@ -23,10 +26,10 @@ def run(args):
     sift_sfm = outputs / "sfm_sift"  # from which we extract the reference poses
     reference_sfm = outputs / "sfm_superpoint+superglue"  # the SfM model we will build
     sfm_pairs = (
-        outputs / f"pairs-db-covis{args.num_covis}.txt"
+            outputs / f"pairs-db-covis{args.num_covis}.txt"
     )  # top-k most covisible in SIFT model
     loc_pairs = (
-        outputs / f"pairs-query-netvlad{args.num_loc}.txt"
+            outputs / f"pairs-query-netvlad{args.num_loc}.txt"
     )  # top-k retrieved by NetVLAD
     results = outputs / f"Aachen_hloc_superpoint+superglue_netvlad{args.num_loc}.txt"
 
@@ -64,21 +67,31 @@ def run(args):
         query_prefix="query",
         db_model=reference_sfm,
     )
-    
+
     loc_matches = match_features.main(
         matcher_conf, loc_pairs, feature_conf["output"], outputs
     )
 
-    localize_sfm.main(
-        reference_sfm,
-        dataset / "queries/*_time_queries_with_intrinsics.txt",
-        loc_pairs,
-        features,
-        loc_matches,
-        results,
-        covisibility_clustering=True,
-        prepend_camera_name=True
-    )  # not required with SuperPoint+SuperGlue
+    functor = None
+    xtra_args = {}
+    if args.solver != "p3p":
+        functor = localize_sfm_poselib_sample.main
+        xtra_args["solver"] = args.solver
+    else:
+        functor = localize_sfm_colmap_sample.main
+        xtra_args["solver"] = solver_map[args.solver]
+
+    print(f"Solver: {args.solver}/{functor}; KwArgs: {xtra_args}")
+
+    functor(reference_sfm,
+            dataset / "queries/*_time_queries_with_intrinsics.txt",
+            loc_pairs,
+            features,
+            loc_matches,
+            results,
+            covisibility_clustering=True,
+            prepend_camera_name=True,
+            **xtra_args)
 
 
 if __name__ == "__main__":
@@ -106,6 +119,12 @@ if __name__ == "__main__":
         type=int,
         default=50,
         help="Number of image pairs for loc, default: %(default)s",
+    )
+    parser.add_argument(
+        "--solver",
+        type=str,
+        default="p3p",
+        help="Solver to use for localization, default: %(default)s",
     )
     args = parser.parse_args()
     run(args)

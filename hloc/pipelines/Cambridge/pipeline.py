@@ -1,10 +1,12 @@
 import argparse
 from pathlib import Path
 
+import pycolmap
+
 from ... import (
     extract_features,
-    localize_sfm_p3p_sample,
-    localize_sfm_recon_sample,
+    localize_sfm_colmap_sample,
+    localize_sfm_poselib_sample,
     logger,
     match_features,
     pairs_from_covisibility,
@@ -15,6 +17,7 @@ from ... import (
 from .utils import create_query_list_with_intrinsics, evaluate, scale_sfm_images
 
 SCENES = ["KingsCollege", "OldHospital", "ShopFacade", "StMarysChurch", "GreatCourt"]
+solver_map = {"p3p":pycolmap.absolute_pose_estimation}
 
 def run_scene(images, gt_dir, outputs, results, num_covis, num_loc, solver):
     ref_sfm_sift = gt_dir / "model_train"
@@ -72,28 +75,28 @@ def run_scene(images, gt_dir, outputs, results, num_covis, num_loc, solver):
         matcher_conf, loc_pairs, feature_conf["output"], outputs
     )
 
-    if solver == "p3p":
-        localize_sfm_p3p_sample.main(
-            ref_sfm,
-            query_list,
-            loc_pairs,
-            features,
-            loc_matches,
-            results,
-            covisibility_clustering=False,
-            prepend_camera_name=True,
-        )
-    elif solver == "recon":
-        localize_sfm_recon_sample.main(
-            ref_sfm,
-            query_list,
-            loc_pairs,
-            features,
-            loc_matches,
-            results,
-            covisibility_clustering=False,
-            prepend_camera_name=True,
-        )
+    functor = None
+    args = {}
+    if solver != "p3p":
+        functor = localize_sfm_poselib_sample.main
+        args["solver"] = solver
+    else:
+        functor = localize_sfm_colmap_sample.main
+        args["solver"] = solver
+
+    print(f"Solver: {solver}/{functor}; KwArgs: {args}")
+
+    functor(
+        ref_sfm,
+        query_list,
+        loc_pairs,
+        features,
+        loc_matches,
+        results,
+        covisibility_clustering=False,
+        prepend_camera_name=True,
+        **args
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

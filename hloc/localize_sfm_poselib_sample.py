@@ -4,15 +4,17 @@ import pickle
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Union
-from time import process_time_ns
 
 import numpy as np
+import poselib
 import pycolmap
 from tqdm import tqdm
+from time import process_time_ns
 
 from . import logger
 from .utils.io import get_keypoints, get_matches
 from .utils.parsers import parse_image_lists, parse_retrieval
+from . import conversionutils as cu
 
 def do_covisibility_clustering(
     frame_ids: List[int], reconstruction: pycolmap.Reconstruction
@@ -50,29 +52,47 @@ def do_covisibility_clustering(
     clusters = sorted(clusters, key=len, reverse=True)
     return clusters
 
-
 class QueryLocalizer:
-    def __init__(self, reconstruction, config=None):
+    def __init__(self, reconstruction, config=None, solver="recon"):
         self.reconstruction = reconstruction
         self.config = config or {}
+        self.solver = solver
 
-    def update_config(self, new_config: Dict):
-        self.config = new_config
-
-    def localize(self, points2D_all, points2D_idxs, points3D_id, query_camera):
+    def localize(self, points2D_all, points2D_idxs, points3D_id, query_camera, iteration_limit:int):
         points2D = points2D_all[points2D_idxs]
         points3D = [self.reconstruction.points3D[j].xyz for j in points3D_id]
+        points2D = cu.transformPointsToPoselib(points2D)
+        points3D = cu.transformPointsToPoselib(points3D)
 
-        time_start = process_time_ns()
-        ret = pycolmap.absolute_pose_estimation(
-            points2D,
-            points3D,
-            query_camera,
-            estimation_options=self.config.get("estimation", {}),
-            refinement_options=self.config.get("refinement", {}),
-        )
-        time_end = process_time_ns()
-        ret["time"] = math.floor((time_end - time_start) / 1000000) #getting milliseconds
+        cam_to_use = cu.colmapQueryCamToDict(query_camera)
+
+        refinement_options = self.config.get("refinement", {})
+        refinement_opts_to_use = cu.colmapToPoselibRefinementOptions(refinement_options)
+
+        if self.solver == "recon":
+            recon_opts = {'outerIterations': iteration_limit, 'nP3pSamples': 15, 'nBestModelsConsidered': 3, 'randSeed': 89,
+                          'strictConsistencyAlpha': 0.99, 'nRECONStrictModels': 3, 'p3pInlierThreshold': 35.0,
+                          'up2pInlierThreshold': 35.0, 'nOuterUp2pPoses': 3, 'nInlierSetsRequired': 1, 'failure_probability' : 0.85}
+
+            time_start = process_time_ns()
+            camR, stats = poselib.RECON_threshold_solver_iterations_bounded(points2D, points3D, cam_to_use, recon_opts, refinement_opts_to_use)
+            time_end = process_time_ns()
+
+        elif self.solver == "up2p":
+            ransac_opts = {'max_reproj_error': 35.0, 'min_iterations': iteration_limit, 'max_iterations': iteration_limit, 'seed': 111}
+
+            time_start = process_time_ns()
+            camR, stats = poselib.estimate_absolute_pose_upright(points2D, points3D, cam_to_use, ransac_opts, refinement_opts_to_use)
+            time_end = process_time_ns()
+        else:
+            raise ValueError("The provided solver is not yet supported.")
+
+        ret = {}
+        ret["cam_from_world"] = cu.transformPoselibPoseToColmapPose(camR)
+        ret["num_inliers"] = len(stats["inliers"])
+        if self.solver == "recon":
+            ret["inliers"] = cu.transformPoselibMaskToColmapMask(stats["inlierMask"])
+        ret["time"] = math.floor((time_end - time_start) / 1000000)
 
         return ret
 
@@ -83,6 +103,7 @@ def pose_from_cluster(
         db_ids: List[int],
         features_path: Path,
         matches_path: Path,
+        iteration_limit:int,
         **kwargs,
 ):
     kpq = get_keypoints(features_path, qname)
@@ -113,7 +134,7 @@ def pose_from_cluster(
     idxs = list(kp_idx_to_3D.keys())
     mkp_idxs = [i for i in idxs for _ in kp_idx_to_3D[i]]
     mp3d_ids = [j for i in idxs for j in kp_idx_to_3D[i]]
-    ret = localizer.localize(kpq, mkp_idxs, mp3d_ids, query_camera, **kwargs)
+    ret = localizer.localize(kpq, mkp_idxs, mp3d_ids, query_camera, iteration_limit)
 
     if ret is not None:
         ret["camera"] = query_camera
@@ -133,7 +154,6 @@ def pose_from_cluster(
     }
     return ret, log
 
-
 def main(
         reference_sfm: Union[Path, pycolmap.Reconstruction],
         queries: Path,
@@ -146,10 +166,14 @@ def main(
         prepend_camera_name: bool = False,
         config: Dict = None,
         iterations_bounds=None,
-        iteration_repetitions:int = 30
+        iteration_repetitions:int = 20,
+        solver="recon"
 ):
     if iterations_bounds is None or isinstance(iterations_bounds, list):
-        iterations_bounds = [25, 100, 200, 500, 1000, 5000, 7000, 10000]
+        if solver != "recon":
+            iterations_bounds = [50, 100, 150, 200, 250, 350, 450, 550, 750, 950, 1350, 2150]
+        else:
+            iterations_bounds = [25, 50, 75, 100, 125, 175, 225, 275, 375, 475, 675, 1075]
 
     assert retrieval.exists(), retrieval
     assert features.exists(), features
@@ -163,8 +187,8 @@ def main(
         reference_sfm = pycolmap.Reconstruction(reference_sfm)
     db_name_to_id = {img.name: i for i, img in reference_sfm.images.items()}
 
-    config = {"estimation": {"ransac": {"max_error": ransac_thresh, "min_num_trials" : 1, "max_num_trials":1}}, **(config or {})}
-    localizer = QueryLocalizer(reference_sfm, config)
+    config = {"estimation": {"ransac": {"max_error": ransac_thresh}}, **(config or {})}
+    localizer = QueryLocalizer(reference_sfm, config, solver)
 
     cam_from_world = {}
     logs = {
@@ -186,43 +210,67 @@ def main(
                 continue
             db_ids.append(db_name_to_id[n])
 
+        clusters = None
+        if covisibility_clustering:
+            clusters = do_covisibility_clustering(db_ids, reference_sfm)
+
         cam_from_world[qname] = {num_iter : [] for num_iter in iterations_bounds}
 
         for iterations_upper_bound in iterations_bounds:
-            config['estimation']['ransac']['min_num_trials'] = iterations_upper_bound
-            config['estimation']['ransac']['max_num_trials'] = iterations_upper_bound
-            localizer.update_config(config)
-
             print(f"[ {qname} : {iterations_upper_bound} ]")
 
             for i in range(iteration_repetitions):
-                ret, log = pose_from_cluster(
-                   localizer, qname, qcam, db_ids, features, matches
-                )
+                if covisibility_clustering:
+                    best_inliers = 0
+                    best_cluster = None
+                    logs_clusters = []
+                    for i, cluster_ids in enumerate(clusters):
+                        ret, log = pose_from_cluster(
+                            localizer, qname, qcam, cluster_ids, features, matches
+                        )
+                        if ret is not None and ret["num_inliers"] > best_inliers:
+                            best_cluster = i
+                            best_inliers = ret["num_inliers"]
+                        logs_clusters.append(log)
+                    if best_cluster is not None:
+                        ret = logs_clusters[best_cluster]["PnP_ret"]
+                        cam_from_world[qname] = (ret["cam_from_world"],ret['time'])
+                    else:
+                        closest = reference_sfm.images[db_ids[0]]
+                        cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1))
 
-                if ret is not None:
-                    rec_pos = ret["cam_from_world"]
-                    # print(f"[{iterations_upper_bound} : {i}] Recorded pos: {rec_pos}")
-
-                    rec_time = ret["time"]
-                    # print(f"[{iterations_upper_bound} : {i}] Recorded time: {rec_time}")
-
-                    cam_from_world[qname][iterations_upper_bound].append((ret["cam_from_world"],ret["time"]))
+                    logs["loc"][qname] = {
+                        "db": db_ids,
+                        "best_cluster": best_cluster,
+                        "log_clusters": logs_clusters,
+                        "covisibility_clustering": covisibility_clustering,
+                    }
                 else:
-                    closest = reference_sfm.images[db_ids[0]]
-                    cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1))
+                    ret, log = pose_from_cluster(
+                        localizer, qname, qcam, db_ids, features, matches, iterations_upper_bound
+                    )
 
-                log["covisibility_clustering"] = covisibility_clustering
-                logs["loc"][qname] = log
+                    if ret is not None:
+                        rec_pos = ret["cam_from_world"]
+
+                        rec_time = ret["time"]
+
+                        cam_from_world[qname][iterations_upper_bound].append((ret["cam_from_world"], ret["time"], ret["num_inliers"] > 0))
+                    else:
+                        closest = reference_sfm.images[db_ids[0]]
+                        cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1, False))
+
+                    log["covisibility_clustering"] = covisibility_clustering
+                    logs["loc"][qname] = log
 
     logger.info(f"Localized {len(cam_from_world)} / {len(queries)} images.")
     logger.info(f"Writing poses to {results}...")
     with open(results, "w") as f:
         for query, iteration_data in cam_from_world.items():
             for iterations_upper_bound, data_list in iteration_data.items():
-                for t, time in data_list:
-                    qvec = " ".join(map(str, t.rotation.quat[[3, 0, 1, 2]]))
-                    tvec = " ".join(map(str, t.translation))
+                for t, time, success in data_list:
+                    qvec = " ".join(map(str, t.rotation.quat[[3, 0, 1, 2]])) if success else "2 2 2 2" #cosine can never be > 1
+                    tvec = " ".join(map(str, t.translation)) if success else "-1 -1 -1"
                     name = query.split("/")[-1]
                     if prepend_camera_name:
                         name = query.split("/")[-2] + "/" + name
@@ -235,16 +283,16 @@ def main(
         pickle.dump(logs, f)
     logger.info("Done!")
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--reference_sfm", type=Path, required=True)
-    parser.add_argument("--queries", type=Path, required=True)
-    parser.add_argument("--features", type=Path, required=True)
-    parser.add_argument("--matches", type=Path, required=True)
-    parser.add_argument("--retrieval", type=Path, required=True)
-    parser.add_argument("--results", type=Path, required=True)
-    parser.add_argument("--ransac_thresh", type=float, default=12.0)
-    parser.add_argument("--covisibility_clustering", action="store_true")
-    parser.add_argument("--prepend_camera_name", action="store_true")
-    args = parser.parse_args()
-    main(**args.__dict__)
+# if __name__ == "__main__":
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument("--reference_sfm", type=Path, required=True)
+#     parser.add_argument("--queries", type=Path, required=True)
+#     parser.add_argument("--features", type=Path, required=True)
+#     parser.add_argument("--matches", type=Path, required=True)
+#     parser.add_argument("--retrieval", type=Path, required=True)
+#     parser.add_argument("--results", type=Path, required=True)
+#     parser.add_argument("--ransac_thresh", type=float, default=12.0)
+#     parser.add_argument("--covisibility_clustering", action="store_true")
+#     parser.add_argument("--prepend_camera_name", action="store_true")
+#     args = parser.parse_args()
+#     main(**args.__dict__)
