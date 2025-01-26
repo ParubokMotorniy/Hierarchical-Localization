@@ -75,6 +75,11 @@ class QueryLocalizer:
             refinement_options=self.config.get("refinement", {}),
         )
         time_end = process_time_ns()
+
+        if ret is None:
+            ret = {}
+            ret["num_inliers"] = 0
+
         ret["time"] = math.floor((time_end - time_start) / 1000000) #getting milliseconds
 
         return ret
@@ -218,10 +223,10 @@ def main(
                         logs_clusters.append(log)
                     if best_cluster is not None:
                         ret = logs_clusters[best_cluster]["PnP_ret"]
-                        cam_from_world[qname] = (ret["cam_from_world"],ret['time'])
+                        cam_from_world[qname] = (ret["cam_from_world"],ret['time'], ret["num_inliers"] > 0)
                     else:
                         closest = reference_sfm.images[db_ids[0]]
-                        cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1))
+                        cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1, False))
 
                     logs["loc"][qname] = {
                         "db": db_ids,
@@ -239,10 +244,10 @@ def main(
 
                         rec_time = ret["time"]
 
-                        cam_from_world[qname][iterations_upper_bound].append((ret["cam_from_world"],ret["time"]))
-                    else:
+                        cam_from_world[qname][iterations_upper_bound].append((ret["cam_from_world"],ret["time"], ret["num_inliers"] > 0))
+                    else:#never occurs now
                         closest = reference_sfm.images[db_ids[0]]
-                        cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1))
+                        cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1, False))
 
                     log["covisibility_clustering"] = covisibility_clustering
                     logs["loc"][qname] = log
@@ -252,9 +257,11 @@ def main(
     with open(results, "w") as f:
         for query, iteration_data in cam_from_world.items():
             for iterations_upper_bound, data_list in iteration_data.items():
-                for t, time in data_list:
-                    qvec = " ".join(map(str, t.rotation.quat[[3, 0, 1, 2]]))
-                    tvec = " ".join(map(str, t.translation))
+                for t, time, success in data_list:
+                    # qvec = " ".join(map(str, t.rotation.quat[[3, 0, 1, 2]]))
+                    # tvec = " ".join(map(str, t.translation))
+                    qvec = " ".join(map(str, t.rotation.quat[[3, 0, 1, 2]])) if success else "2 2 2 2" #cosine can never be > 1 -> indication of error
+                    tvec = " ".join(map(str, t.translation)) if success else "-1 -1 -1"
                     name = query.split("/")[-1]
                     if prepend_camera_name:
                         name = query.split("/")[-2] + "/" + name

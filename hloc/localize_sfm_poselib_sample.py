@@ -90,8 +90,10 @@ class QueryLocalizer:
         ret = {}
         ret["cam_from_world"] = cu.transformPoselibPoseToColmapPose(camR)
         ret["num_inliers"] = len(stats["inliers"])
+
         if self.solver == "recon":
             ret["inliers"] = cu.transformPoselibMaskToColmapMask(stats["inlierMask"])
+
         ret["time"] = math.floor((time_end - time_start) / 1000000)
 
         return ret
@@ -256,7 +258,7 @@ def main(
                         rec_time = ret["time"]
 
                         cam_from_world[qname][iterations_upper_bound].append((ret["cam_from_world"], ret["time"], ret["num_inliers"] > 0))
-                    else:
+                    else: #never false actually, for POSELIB calls
                         closest = reference_sfm.images[db_ids[0]]
                         cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1, False))
 
@@ -269,7 +271,7 @@ def main(
         for query, iteration_data in cam_from_world.items():
             for iterations_upper_bound, data_list in iteration_data.items():
                 for t, time, success in data_list:
-                    qvec = " ".join(map(str, t.rotation.quat[[3, 0, 1, 2]])) if success else "2 2 2 2" #cosine can never be > 1
+                    qvec = " ".join(map(str, t.rotation.quat[[3, 0, 1, 2]])) if success else "2 2 2 2" #cosine can never be > 1 -> indication of error
                     tvec = " ".join(map(str, t.translation)) if success else "-1 -1 -1"
                     name = query.split("/")[-1]
                     if prepend_camera_name:

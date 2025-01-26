@@ -81,8 +81,6 @@ def run(args):
         functor = localize_sfm_colmap_sample.main
         xtra_args["solver"] = solver_map[args.solver]
 
-    print(f"Solver: {args.solver}/{functor}; KwArgs: {xtra_args}")
-
     functor(reference_sfm,
             dataset / "queries/*_time_queries_with_intrinsics.txt",
             loc_pairs,

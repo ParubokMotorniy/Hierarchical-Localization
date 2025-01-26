@@ -145,7 +145,7 @@ def evaluate_sampled(model, results, iterations_bounds: list, repetitions_per_bo
                 for i in range(repetitions_per_bound):
                     R, t, time, if_no_error = predictions[name][iterations_upper_bound][i]
 
-                    if time != -1:
+                    if time != -1: #time should never be -1 actually in my implementation
                         e_t = np.linalg.norm(-R_gt.T @ t_gt + R.T @ t, axis=0) if if_no_error else default_trans_error
                         cos = np.clip((np.trace(np.dot(R_gt.T, R)) - 1) / 2, -1.0, 1.0)
                         e_R = np.rad2deg(np.abs(np.arccos(cos))) if if_no_error else default_rot_error
