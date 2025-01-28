@@ -72,16 +72,26 @@ def run(args):
         matcher_conf, loc_pairs, feature_conf["output"], outputs
     )
 
-    functor = None
-    xtra_args = {}
-    if args.solver != "p3p":
-        functor = localize_sfm_poselib_sample.main
-        xtra_args["solver"] = args.solver
-    else:
-        functor = localize_sfm_colmap_sample.main
-        xtra_args["solver"] = solver_map[args.solver]
+    #functor = None
+    #xtra_args = {}
+    #if args.solver != "p3p":
+        #functor = localize_sfm_poselib_sample.main
+        #xtra_args["solver"] = args.solver
+    #else:
+        #functor = localize_sfm_colmap_sample.main
+        #xtra_args["solver"] = solver_map[args.solver]
 
-    functor(reference_sfm,
+    #functor(reference_sfm,
+            #dataset / "queries/*_time_queries_with_intrinsics.txt",
+            #loc_pairs,
+            #features,
+            #loc_matches,
+            #results,
+            #covisibility_clustering=True,
+            #prepend_camera_name=True,
+            #**xtra_args)
+
+    localize_sfm_poselib_sample.main(reference_sfm,
             dataset / "queries/*_time_queries_with_intrinsics.txt",
             loc_pairs,
             features,
@@ -89,7 +99,9 @@ def run(args):
             results,
             covisibility_clustering=True,
             prepend_camera_name=True,
-            **xtra_args)
+            solver=args.solver
+            )
+
 
 
 if __name__ == "__main__":

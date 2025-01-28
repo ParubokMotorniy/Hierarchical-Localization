@@ -75,18 +75,30 @@ def run_scene(images, gt_dir, outputs, results, num_covis, num_loc, solver):
         matcher_conf, loc_pairs, feature_conf["output"], outputs
     )
 
-    functor = None
-    args = {}
-    if solver != "p3p":
-        functor = localize_sfm_poselib_sample.main
-        args["solver"] = solver
-    else:
-        functor = localize_sfm_colmap_sample.main
-        args["solver"] = solver
+    #functor = None
+    #args = {}
+    #if solver != "p3p":
+        #functor = localize_sfm_poselib_sample.main
+        #args["solver"] = solver
+    #else:
+        #functor = localize_sfm_colmap_sample.main
+        #args["solver"] = solver_map[solver]
 
-    print(f"Solver: {solver}/{functor}; KwArgs: {args}")
+    #print(f"Solver: {solver}/{functor}; KwArgs: {args}")
 
-    functor(
+    #functor(
+        #ref_sfm,
+        #query_list,
+        #loc_pairs,
+        #features,
+        #loc_matches,
+        #results,
+        #covisibility_clustering=False,
+        #prepend_camera_name=True,
+        #**args
+    #)
+
+    localize_sfm_poselib_sample.main(
         ref_sfm,
         query_list,
         loc_pairs,
@@ -95,7 +107,7 @@ def run_scene(images, gt_dir, outputs, results, num_covis, num_loc, solver):
         results,
         covisibility_clustering=False,
         prepend_camera_name=True,
-        **args
+        solver = solver
     )
 
 if __name__ == "__main__":

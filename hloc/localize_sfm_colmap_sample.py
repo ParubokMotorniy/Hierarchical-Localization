@@ -63,17 +63,21 @@ class QueryLocalizer:
     def localize(self, points2D_all, points2D_idxs, points3D_id, query_camera):
         points2D = points2D_all[points2D_idxs]
         points3D = np.array([self.reconstruction.points3D[j].xyz for j in points3D_id])
-
-        print(type(points2D), type(points3D))
-
+        
+        ret = None
         time_start = process_time_ns()
-        ret = self.solver(
-            points2D,
-            points3D,
-            query_camera,
-            estimation_options=self.config.get("estimation", {}),
-            refinement_options=self.config.get("refinement", {}),
-        )
+        try:
+            ret = self.solver(
+                points2D,
+                points3D,
+                query_camera,
+                estimation_options=self.config.get("estimation", {}),
+                refinement_options=self.config.get("refinement", {}),
+            )
+        except Exception as e:
+            print(e)
+            ret = None
+
         time_end = process_time_ns()
 
         if ret is None:
@@ -223,7 +227,7 @@ def main(
                         logs_clusters.append(log)
                     if best_cluster is not None:
                         ret = logs_clusters[best_cluster]["PnP_ret"]
-                        cam_from_world[qname] = (ret["cam_from_world"],ret['time'], ret["num_inliers"] > 0)
+                        cam_from_world[qname][iterations_upper_bound].append((ret["cam_from_world"],ret['time'], ret["num_inliers"] > 0))
                     else:
                         closest = reference_sfm.images[db_ids[0]]
                         cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1, False))
@@ -258,8 +262,6 @@ def main(
         for query, iteration_data in cam_from_world.items():
             for iterations_upper_bound, data_list in iteration_data.items():
                 for t, time, success in data_list:
-                    # qvec = " ".join(map(str, t.rotation.quat[[3, 0, 1, 2]]))
-                    # tvec = " ".join(map(str, t.translation))
                     qvec = " ".join(map(str, t.rotation.quat[[3, 0, 1, 2]])) if success else "2 2 2 2" #cosine can never be > 1 -> indication of error
                     tvec = " ".join(map(str, t.translation)) if success else "-1 -1 -1"
                     name = query.split("/")[-1]

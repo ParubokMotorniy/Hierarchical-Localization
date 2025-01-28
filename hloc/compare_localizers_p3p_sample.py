@@ -100,10 +100,8 @@ def evaluate_sampled(model, results, iterations_bounds: list, repetitions_per_bo
                     if_no_error = not np.all([i == 2 for i in q])  # cosine can not exceed 1
 
                     # print(f"?? RECON results string: {data} ??")
-                    # if if_no_error:
-                    #     print(f"++ RECON found inlier set estimate for {name} within {iterations_upper_bound} iterations ++")
-                    # else:
-                    #     print(f"-- RECON FAILED to find inlier set estimate for {name} within {iterations_upper_bound} iterations --")
+                    if not if_no_error:
+                         print(f"--- Solver FAILED to find inlier set estimate for {name} within {iterations_upper_bound} iterations at repetition {i} ---")
 
                     predictions[name][iterations_upper_bound].append((qvec2rotmat(q), t, time, if_no_error))
 
@@ -655,10 +653,10 @@ def compare_aggregate_by_bound_any(present_sequences: list, sample_data: list, i
         errors_t = np.concatenate(solvers_median_errors_t).tolist()
         errors_r = np.concatenate(solvers_median_errors_r).tolist()
 
-        print(f"All errors t: {errors_t}")
-        print(f"All errors r: {errors_r}")
-        print(f"All timepoints: {time_points}")
-        print(f"All names: {metric}")
+        #print(f"All errors t: {errors_t}")
+        #print(f"All errors r: {errors_r}")
+        #print(f"All timepoints: {time_points}")
+        #print(f"All names: {metric}")
 
         # plotting
 
@@ -676,7 +674,7 @@ def compare_aggregate_by_bound_any(present_sequences: list, sample_data: list, i
         plt.xlabel("Runtime (ms)")
 
         fig = plt.gcf()
-        fig.set_size_inches(9, 7)
+        fig.set_size_inches(11, 8)
 
         plt.savefig(f"./plots/sequence_error_progression/aggregate_bound_all_translation_error_{seq_name}.png",
                     dpi=1300,
@@ -699,7 +697,7 @@ def compare_aggregate_by_bound_any(present_sequences: list, sample_data: list, i
         plt.xlabel("Runtime (ms)")
 
         fig = plt.gcf()
-        fig.set_size_inches(9, 7)
+        fig.set_size_inches(11, 8)
 
         plt.savefig(f"./plots/sequence_error_progression/aggregate_bound_all_rotation_error_{seq_name}.png", dpi=1300,
                     bbox_inches='tight',
@@ -1072,10 +1070,10 @@ def compare_aggregate_by_time_any(present_sequences: list, sample_data: list, it
         errors_t = np.concatenate(solvers_errors_t).tolist()
         errors_r = np.concatenate(solvers_errors_r).tolist()
 
-        print(f"All errors t: {errors_t}")
-        print(f"All errors r: {errors_r}")
-        print(f"All timepoints: {time_points}")
-        print(f"All names: {metric}")
+        #print(f"All errors t: {errors_t}")
+        #print(f"All errors r: {errors_r}")
+        #print(f"All timepoints: {time_points}")
+        #print(f"All names: {metric}")
 
         # plotting
 
@@ -1092,7 +1090,7 @@ def compare_aggregate_by_time_any(present_sequences: list, sample_data: list, it
         plt.xlabel("Runtime (ms)")
 
         fig = plt.gcf()
-        fig.set_size_inches(9, 7)
+        fig.set_size_inches(11, 8)
 
         plt.savefig(f"./plots/sequence_error_progression/aggregate_time_all_translation_error_{seq_name}.png", dpi=1300,
                     bbox_inches='tight',
@@ -1114,7 +1112,7 @@ def compare_aggregate_by_time_any(present_sequences: list, sample_data: list, it
         plt.xlabel("Runtime (ms)")
 
         fig = plt.gcf()
-        fig.set_size_inches(9, 7)
+        fig.set_size_inches(11, 8)
 
         plt.savefig(f"./plots/sequence_error_progression/aggregate_time_all_rotation_error_{seq_name}.png", dpi=1300,
                     bbox_inches='tight',
@@ -1125,7 +1123,7 @@ def compare_aggregate_by_time_any(present_sequences: list, sample_data: list, it
 
 
 def main_sample_p3p(dataset_name: str, if_generalize_for_dataset: bool):
-    present_sequences = ['seq3', 'seq5', 'seq15']  # TODO: vary this for different scenes
+    present_sequences = ['seq3', 'seq5', 'seq13']  # TODO: vary this for different scenes
 
     gt_dirs = Path("./datasets/cambridge/CambridgeLandmarks_Colmap_Retriangulated_1024px")
     model_path = gt_dirs / dataset_name / "empty_all"
@@ -1169,7 +1167,7 @@ def main_sample_p3p(dataset_name: str, if_generalize_for_dataset: bool):
     compare_aggregate_by_time(present_sequences, sample_p3p_data, recon_data, iteration_bounds_p3p, 45, 7)
 
 
-def main_sample_both(dataset_name: str, if_generalize_for_dataset: bool):
+def main_sample_all(dataset_name: str, if_generalize_for_dataset: bool):
     present_sequences = ['seq3', 'seq1']  # , 'seq15'] #TODO: vary this for different scenes
 
     gt_dirs = Path("./datasets/cambridge/CambridgeLandmarks_Colmap_Retriangulated_1024px")
@@ -1180,14 +1178,22 @@ def main_sample_both(dataset_name: str, if_generalize_for_dataset: bool):
                      "up2p": Path(f"./outputs/cambridge/{dataset_name}/up2p/results.txt"),
                      "recon": Path(f"./outputs/cambridge/{dataset_name}/recon/results.txt")}
 
-    # [5, 25, 100, 200, 500, 1000, 5000, 7000, 10000]
-    incremention_coeffs = [1, 1, 1, 1, 1, 2, 2, 2, 4, 4, 8, 16]
+    incremention_coeffs = [1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5]
 
-    iteration_bounds_standard = [50, 100, 150, 200, 250, 350, 450, 550, 750, 950,
-                                 1350, 2150]  # [25, 100, 200, 500, 1000, 5000, 7000, 10000]
+    #step = 75 #[50, 100, 150, 200, 250, 350, 450, 550, 750, 950, 1350, 2150] <- step is 50
+    iteration_bounds_standard = [75, 150, 225, 300, 375, 450, 525,
+                                 675, 825, 975, 1125,
+                                 1350, 1575, 1800,
+                                 2100, 2400,
+                                 2775]
     num_repetitions_p3p = 20
 
-    iteration_bounds_recon = [25, 50, 75, 100, 125, 175, 225, 275, 375, 475, 675, 1075]  # [25, 50, 75, 100, 125, 150, 175, 200, 225, 250] #[100, 200, 500, 1000, 3000, 5000]
+    #step = 15 #[25, 50, 75, 100, 125, 175, 225, 275, 375, 475, 675, 1075] <- here it is 25
+    iteration_bounds_recon = [15, 30, 45, 60, 75, 90, 105,
+                              135, 165, 195, 225,
+                              270, 315, 360,
+                              420, 480,
+                              555]
     num_repetitions_recon = 20
 
     solvers_iterations_bounds = [iteration_bounds_standard, iteration_bounds_standard, iteration_bounds_recon]
@@ -1195,9 +1201,11 @@ def main_sample_both(dataset_name: str, if_generalize_for_dataset: bool):
     sample_recon_data = evaluate_sampled(model_path, results_paths['recon'], iteration_bounds_recon,
                                          num_repetitions_recon, present_sequences, num_repetitions_recon, list_file,
                                          ext=".txt", sort_errors_by_time=False)  # TODO: note sorting here
+
     sample_p3p_data = evaluate_sampled(model_path, results_paths['p3p'], iteration_bounds_standard, num_repetitions_p3p,
                                        present_sequences, num_repetitions_p3p, list_file, ext=".txt",
                                        sort_errors_by_time=False)  # TODO: note sorting here
+
     sample_up2p_data = evaluate_sampled(model_path, results_paths['up2p'], iteration_bounds_standard,
                                         num_repetitions_p3p, present_sequences, num_repetitions_p3p, list_file,
                                         ext=".txt", sort_errors_by_time=False)  # TODO: note sorting here
@@ -1220,11 +1228,11 @@ def main_sample_both(dataset_name: str, if_generalize_for_dataset: bool):
 
     solvers_names = ["p3p", "up2p", "recon"]
     compare_aggregate_by_bound_any(present_sequences, solvers_sample_data, solvers_iterations_bounds,
-                                   results_paths.keys())
+                                   solvers_names)
     compare_aggregate_by_time_any(present_sequences, solvers_sample_data, solvers_iterations_bounds,
-                                  results_paths.keys(), 10)
+                                  solvers_names, 10)
 
 
 if __name__ == "__main__":
     # main_sample_p3p(sys.argv[1], True if (len(sys.argv) > 2 and sys.argv[2] == "1") else False)
-    main_sample_both(sys.argv[1], True if (len(sys.argv) > 2 and sys.argv[2] == "1") else False)
+    main_sample_all(sys.argv[1], True if (len(sys.argv) > 2 and sys.argv[2] == "1") else False)
