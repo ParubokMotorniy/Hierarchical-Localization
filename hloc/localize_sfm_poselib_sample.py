@@ -62,8 +62,6 @@ class QueryLocalizer:
 
     def localize(self, points2D_all, points2D_idxs, points3D_id, query_camera, iteration_limit:int):
 
-        print(f"Solver: {self.solver}; Limit: {iteration_limit}")
-
         points2D = points2D_all[points2D_idxs]
         points3D = [self.reconstruction.points3D[j].xyz for j in points3D_id]
         points2D = cu.transformPointsToPoselib(points2D)
@@ -74,26 +72,31 @@ class QueryLocalizer:
         refinement_options = self.config.get("refinement", {})
         refinement_opts_to_use = cu.colmapToPoselibRefinementOptions(refinement_options)
 
-        current_samplig_seed = random.randint(1, 250)
+        current_sampling_seed = random.randint(1, 250)
 
         if self.solver == "recon":
-            recon_opts = {'outerIterations': iteration_limit, 'nP3pSamples': 15, 'nBestModelsConsidered': 3, 'randSeed': current_samplig_seed,
+            recon_opts = {'outerIterations': iteration_limit, 'nP3pSamples': 15, 'nBestModelsConsidered': 3, 'randSeed': current_sampling_seed,
                           'strictConsistencyAlpha': 0.99, 'nRECONStrictModels': 3, 'p3pInlierThreshold': 35.0,
                           'up2pInlierThreshold': 35.0, 'nOuterUp2pPoses': 3, 'nInlierSetsRequired': 1, 'failure_probability' : 0.85}
+
+            print("Starting recon!")
+            print(f"Args: {len(points2D), len(points3D), cam_to_use, recon_opts, refinement_opts_to_use}")
 
             time_start = process_time_ns()
             camR, stats = poselib.RECON_threshold_solver_iterations_bounded(points2D, points3D, cam_to_use, recon_opts, refinement_opts_to_use)
             time_end = process_time_ns()
 
+            print("Recon finished")
+
         elif self.solver == "up2p":
-            ransac_opts = {'max_reproj_error': 35.0, 'min_iterations': iteration_limit, 'max_iterations': iteration_limit, 'seed': current_samplig_seed}
+            ransac_opts = {'max_reproj_error': 35.0, 'min_iterations': iteration_limit, 'max_iterations': iteration_limit, 'seed': current_sampling_seed}
 
             time_start = process_time_ns()
             camR, stats = poselib.estimate_absolute_pose_upright(points2D, points3D, cam_to_use, ransac_opts, refinement_opts_to_use)
             time_end = process_time_ns()
 
         elif self.solver == "p3p":
-            ransac_opts = {'max_reproj_error': 35.0, 'min_iterations': iteration_limit, 'max_iterations': iteration_limit, 'seed': current_samplig_seed}
+            ransac_opts = {'max_reproj_error': 35.0, 'min_iterations': iteration_limit, 'max_iterations': iteration_limit, 'seed': current_sampling_seed}
 
             time_start = process_time_ns()
             camR, stats = poselib.estimate_absolute_pose(points2D, points3D, cam_to_use, ransac_opts, refinement_opts_to_use)
@@ -183,7 +186,7 @@ def main(
         prepend_camera_name: bool = False,
         config: Dict = None,
         iterations_bounds=None,
-        iteration_repetitions:int = 20,
+        iteration_repetitions:int = 10,
         solver="p3p"
 ):
     if iterations_bounds is None or isinstance(iterations_bounds, list):
@@ -194,11 +197,14 @@ def main(
                                  2100, 2400,
                                  2775]
         else:
-            iterations_bounds = [15, 30, 45, 60, 75, 90, 105,
-                              135, 165, 195, 225,
-                              270, 315, 360,
-                              420, 480,
-                              555]
+            iterations_bounds = [3, 6, 9, 12, 15, 18, 21,
+                                27, 33, 39, 45,
+                                54, 63, 72,
+                                84, 96,
+                                111]
+
+            iteration_repetitions = 5 #TODO: remove this explicit assignment
+
 
     assert retrieval.exists(), retrieval
     assert features.exists(), features
@@ -244,8 +250,8 @@ def main(
 
         cam_from_world[qname] = {num_iter : [] for num_iter in iterations_bounds}
 
-        for iterations_upper_bound in iterations_bounds:
-            print(f"[ {qname} : {iterations_upper_bound} ]")
+        for iterations_upper_bound in tqdm(iterations_bounds):
+            bound_iteration_start = process_time_ns()
 
             for i in range(iteration_repetitions):
                 if covisibility_clustering:
@@ -261,6 +267,7 @@ def main(
                             best_inliers = ret["num_inliers"]
 
                         logs_clusters.append(log)
+
                     if best_cluster is not None:
                         ret = logs_clusters[best_cluster]["PnP_ret"]
                         cam_from_world[qname][iterations_upper_bound].append((ret["cam_from_world"], ret['time'], ret["num_inliers"] > 0))
@@ -287,6 +294,10 @@ def main(
 
                     log["covisibility_clustering"] = covisibility_clustering
                     logs["loc"][qname] = log
+
+            bound_iteration_end = process_time_ns()
+
+            print(f"[ {qname} : {iterations_upper_bound}i * {iteration_repetitions}r; total frame time(s):{(bound_iteration_end - bound_iteration_start) / 1000000000} ]")
 
     logger.info(f"Localized {len(cam_from_world)} / {len(queries)} images.")
     logger.info(f"Writing poses to {results}...")

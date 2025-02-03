@@ -1187,14 +1187,15 @@ def main_sample_all(dataset_name: str, if_generalize_for_dataset: bool):
                                  2100, 2400,
                                  2775]
     num_repetitions_p3p = 20
+    num_repetitions_up2p = 10
 
-    #step = 15 #[25, 50, 75, 100, 125, 175, 225, 275, 375, 475, 675, 1075] <- here it is 25
-    iteration_bounds_recon = [15, 30, 45, 60, 75, 90, 105,
-                              135, 165, 195, 225,
-                              270, 315, 360,
-                              420, 480,
-                              555]
-    num_repetitions_recon = 20
+    #step = 3 #[25, 50, 75, 100, 125, 175, 225, 275, 375, 475, 675, 1075] <- here it is 25
+    iteration_bounds_recon = [3, 6, 9, 12, 15, 18, 21,
+                              27, 33, 39, 45,
+                              54, 63, 72,
+                              84, 96,
+                              111]
+    num_repetitions_recon = 5
 
     solvers_iterations_bounds = [iteration_bounds_standard, iteration_bounds_standard, iteration_bounds_recon]
 
@@ -1207,7 +1208,7 @@ def main_sample_all(dataset_name: str, if_generalize_for_dataset: bool):
                                        sort_errors_by_time=False)  # TODO: note sorting here
 
     sample_up2p_data = evaluate_sampled(model_path, results_paths['up2p'], iteration_bounds_standard,
-                                        num_repetitions_p3p, present_sequences, num_repetitions_p3p, list_file,
+                                        num_repetitions_up2p, present_sequences, num_repetitions_up2p, list_file,
                                         ext=".txt", sort_errors_by_time=False)  # TODO: note sorting here
 
     solvers_sample_data = [sample_p3p_data, sample_up2p_data, sample_recon_data]
