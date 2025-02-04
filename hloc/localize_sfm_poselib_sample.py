@@ -75,7 +75,7 @@ class QueryLocalizer:
         current_sampling_seed = random.randint(1, 250)
 
         if self.solver == "recon":
-            recon_opts = {'outerIterations': iteration_limit, 'nP3pSamples': 15, 'nBestModelsConsidered': 3, 'randSeed': current_sampling_seed,
+            recon_opts = {'outerIterations': iteration_limit, 'nP3pSamples': 10, 'nBestModelsConsidered': 3, 'randSeed': current_sampling_seed,
                           'strictConsistencyAlpha': 0.99, 'nRECONStrictModels': 3, 'p3pInlierThreshold': 35.0,
                           'up2pInlierThreshold': 35.0, 'nOuterUp2pPoses': 3, 'nInlierSetsRequired': 1, 'failure_probability' : 0.85}
 
@@ -197,11 +197,11 @@ def main(
                                  2100, 2400,
                                  2775]
         else:
-            iterations_bounds = [3, 6, 9, 12, 15, 18, 21,
-                                27, 33, 39, 45,
-                                54, 63, 72,
-                                84, 96,
-                                111]
+            iterations_bounds = [5, 10, 15, 20, 25, 30, 35,
+                                 45, 55, 65, 75,
+                                 90, 105, 120,
+                                 140, 160,
+                                 185]
 
             iteration_repetitions = 5 #TODO: remove this explicit assignment
 
