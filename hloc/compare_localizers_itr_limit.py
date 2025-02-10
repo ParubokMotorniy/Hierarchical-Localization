@@ -112,11 +112,15 @@ def evaluate_sampled(model, results, iterations_bounds: list, repetitions_per_bo
         images = read_images_text(model / "images.txt")
     name2id = {image.name: i for i, image in images.items()}
 
+    print(f"Images: {images}")
+
     if list_file is None:
         test_names = list(name2id)
     else:
         with open(list_file, "r") as f:
             test_names = f.read().rstrip().split("\n")
+
+    print(f"Test names: {test_names}")
 
     per_sequence_error_data = {seq: {'errors_t': [], 'errors_R': [], 'durations': []} for seq in sequences}
 
@@ -893,16 +897,16 @@ def main_sample_p3p(dataset_name: str, if_generalize_for_dataset: bool):
     compare_aggregate_by_time(present_sequences, sample_p3p_data, recon_data, iteration_bounds_p3p, 45, 7)
 
 
-def main_sample_all(dataset_name: str, if_generalize_for_dataset: bool):
+def main_sample_all(dataset_name: str, if_generalize_for_dataset: bool, gt_dirs: Path):
     present_sequences = ['seq3', 'seq13', 'seq5'] #TODO: vary this for different scenes
 
-    gt_dirs = Path("./datasets/cambridge/CambridgeLandmarks_Colmap_Retriangulated_1024px")
-    model_path = gt_dirs / dataset_name / "empty_all"
+    #gt_dirs = Path("./datasets/cambridge/CambridgeLandmarks_Colmap_Retriangulated_1024px")
+    model_path = gt_dirs / dataset_name / "sfm_sift"
     list_file = gt_dirs / dataset_name / "list_query.txt"
 
-    results_paths = {"p3p": Path(f"./outputs/cambridge/{dataset_name}/p3p/results.txt"),
-                     "up2p": Path(f"./outputs/cambridge/{dataset_name}/up2p/results.txt"),
-                     "recon": Path(f"./outputs/cambridge/{dataset_name}/recon/results.txt")}
+    results_paths = {"p3p": Path(f"./outputs/{dataset_name}/p3p/results.txt"),
+                     "up2p": Path(f"./outputs/{dataset_name}/up2p/results.txt"),
+                     "recon": Path(f"./outputs/{dataset_name}/recon/results.txt")}
 
     #step = 15
     #iteration_bounds_recon = [15, 30, 45, 60, 75, 90, 105,
@@ -927,20 +931,21 @@ def main_sample_all(dataset_name: str, if_generalize_for_dataset: bool):
     #mary config
     #step = 5
     iteration_bounds_recon = [5, 10, 15, 20, 25, 30, 35,
-                              45, 55, 65, 75,
-                              90, 105, 120,
-                              140, 160,
-                              185]
-    num_repetitions_recon = 5
+                             45, 55, 65, 75,
+                             90, 105, 120,
+                             140, 160,
+                             185]
+
+    num_repetitions_recon = 3
     
     #step = 75
     iteration_bounds_standard = [75, 150, 225, 300, 375, 450, 525,
-                                 675, 825, 975, 1125,
-                                 1350, 1575, 1800,
-                                 2100, 2400,
-                                 2775]
-    num_repetitions_p3p = 5
-    num_repetitions_up2p = 20
+                                675, 825, 975, 1125,
+                                1350, 1575, 1800,
+                                2100, 2400,
+                                2775]
+    num_repetitions_p3p = 20
+    num_repetitions_up2p = 10
 
     
 
@@ -948,15 +953,15 @@ def main_sample_all(dataset_name: str, if_generalize_for_dataset: bool):
 
     sample_recon_data = evaluate_sampled(model_path, results_paths['recon'], iteration_bounds_recon,
                                          num_repetitions_recon, present_sequences, num_repetitions_recon, list_file,
-                                         ext=".txt", sort_errors_by_time=False)  # TODO: note sorting here
+                                         ext=".bin", sort_errors_by_time=False)  # TODO: note sorting here
 
     sample_p3p_data = evaluate_sampled(model_path, results_paths['p3p'], iteration_bounds_standard, num_repetitions_p3p,
-                                       present_sequences, num_repetitions_p3p, list_file, ext=".txt",
+                                       present_sequences, num_repetitions_p3p, list_file, ext=".bin",
                                        sort_errors_by_time=False)  # TODO: note sorting here
 
     sample_up2p_data = evaluate_sampled(model_path, results_paths['up2p'], iteration_bounds_standard,
                                         num_repetitions_up2p, present_sequences, num_repetitions_up2p, list_file,
-                                        ext=".txt", sort_errors_by_time=False)  # TODO: note sorting here
+                                        ext=".bin", sort_errors_by_time=False)  # TODO: note sorting here
 
     solvers_sample_data = [sample_p3p_data, sample_up2p_data, sample_recon_data]
 
@@ -983,4 +988,5 @@ def main_sample_all(dataset_name: str, if_generalize_for_dataset: bool):
 
 if __name__ == "__main__":
     # main_sample_p3p(sys.argv[1], True if (len(sys.argv) > 2 and sys.argv[2] == "1") else False)
-    main_sample_all(sys.argv[1], True if (len(sys.argv) > 2 and sys.argv[2] == "1") else False)
+    #dataset, if_entore_set, ground_truth_path
+    main_sample_all(sys.argv[1], True if sys.argv[2] == "1" else False, Path(sys.argv[2]))

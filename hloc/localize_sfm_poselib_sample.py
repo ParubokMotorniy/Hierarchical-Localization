@@ -79,14 +79,11 @@ class QueryLocalizer:
                           'strictConsistencyAlpha': 0.99, 'nRECONStrictModels': 3, 'p3pInlierThreshold': 35.0,
                           'up2pInlierThreshold': 35.0, 'nOuterUp2pPoses': 3, 'nInlierSetsRequired': 1, 'failure_probability' : 0.85}
 
-            print("Starting recon!")
-            print(f"Args: {len(points2D), len(points3D), cam_to_use, recon_opts, refinement_opts_to_use}")
+            print(f"Recon args: {len(points2D), len(points3D), cam_to_use, refinement_opts_to_use}\n")
 
             time_start = process_time_ns()
             camR, stats = poselib.RECON_threshold_solver_iterations_bounded(points2D, points3D, cam_to_use, recon_opts, refinement_opts_to_use)
             time_end = process_time_ns()
-
-            print("Recon finished")
 
         elif self.solver == "up2p":
             ransac_opts = {'max_reproj_error': 35.0, 'min_iterations': iteration_limit, 'max_iterations': iteration_limit, 'seed': current_sampling_seed}
@@ -197,13 +194,18 @@ def main(
                                  2100, 2400,
                                  2775]
         else:
-            iterations_bounds = [5, 10, 15, 20, 25, 30, 35,
-                                 45, 55, 65, 75,
-                                 90, 105, 120,
-                                 140, 160,
-                                 185]
+            #iterations_bounds = [5, 10, 15, 20, 25, 30, 35, #step = 5
+                                 #45, 55, 65, 75,
+                                 #90, 105, 120,
+                                 #140, 160,
+                                 #185]
+            iterations_bounds = [7, 14, 21, 28, 35, 42, 49, #step = 7
+                                 63, 77, 91, 105,
+                                 126, 147, 168,
+                                 196, 224,
+                                 259]
 
-            iteration_repetitions = 5 #TODO: remove this explicit assignment
+            iteration_repetitions = 2 #TODO: remove this explicit assignment
 
 
     assert retrieval.exists(), retrieval
