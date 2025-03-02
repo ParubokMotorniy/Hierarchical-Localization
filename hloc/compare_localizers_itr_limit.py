@@ -112,7 +112,7 @@ def evaluate_sampled(model, results, iterations_bounds: list, repetitions_per_bo
         images = read_images_text(model / "images.txt")
     name2id = {image.name: i for i, image in images.items()}
 
-    print(f"Images: {images}")
+    print(f"Name 2 id: {name2id}")
 
     if list_file is None:
         test_names = list(name2id)
@@ -120,12 +120,10 @@ def evaluate_sampled(model, results, iterations_bounds: list, repetitions_per_bo
         with open(list_file, "r") as f:
             test_names = f.read().rstrip().split("\n")
 
-    print(f"Test names: {test_names}")
-
     per_sequence_error_data = {seq: {'errors_t': [], 'errors_R': [], 'durations': []} for seq in sequences}
 
     for name in test_names:
-        if name not in predictions:
+        if name not in predictions.keys():
             if only_localized:
                 continue
             e_t = np.inf
@@ -898,11 +896,11 @@ def main_sample_p3p(dataset_name: str, if_generalize_for_dataset: bool):
 
 
 def main_sample_all(dataset_name: str, if_generalize_for_dataset: bool, gt_dirs: Path):
-    present_sequences = ['seq3', 'seq13', 'seq5'] #TODO: vary this for different scenes
+    present_sequences = ['nexus4', 'nexus5x', 'milestone'] #TODO: vary this for different scenes
 
     #gt_dirs = Path("./datasets/cambridge/CambridgeLandmarks_Colmap_Retriangulated_1024px")
-    model_path = gt_dirs / dataset_name / "sfm_sift"
-    list_file = gt_dirs / dataset_name / "list_query.txt"
+    model_path = gt_dirs / "sfm_sift"
+    list_file = gt_dirs  / "list_query.txt"
 
     results_paths = {"p3p": Path(f"./outputs/{dataset_name}/p3p/results.txt"),
                      "up2p": Path(f"./outputs/{dataset_name}/up2p/results.txt"),
@@ -963,7 +961,10 @@ def main_sample_all(dataset_name: str, if_generalize_for_dataset: bool, gt_dirs:
                                         num_repetitions_up2p, present_sequences, num_repetitions_up2p, list_file,
                                         ext=".bin", sort_errors_by_time=False)  # TODO: note sorting here
 
+
     solvers_sample_data = [sample_p3p_data, sample_up2p_data, sample_recon_data]
+    for sdata in solvers_sample_data:
+        print(f"\n {sdata} \n")
 
     if if_generalize_for_dataset:  # if the data has to be aggregated for the entire dataset
         for sample_data in solvers_sample_data:
@@ -989,4 +990,4 @@ def main_sample_all(dataset_name: str, if_generalize_for_dataset: bool, gt_dirs:
 if __name__ == "__main__":
     # main_sample_p3p(sys.argv[1], True if (len(sys.argv) > 2 and sys.argv[2] == "1") else False)
     #dataset, if_entore_set, ground_truth_path
-    main_sample_all(sys.argv[1], True if sys.argv[2] == "1" else False, Path(sys.argv[2]))
+    main_sample_all(sys.argv[1], True if sys.argv[2] == "1" else False, Path(sys.argv[3]))

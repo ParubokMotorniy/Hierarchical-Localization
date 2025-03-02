@@ -79,8 +79,6 @@ class QueryLocalizer:
                           'strictConsistencyAlpha': 0.99, 'nRECONStrictModels': 3, 'p3pInlierThreshold': 35.0,
                           'up2pInlierThreshold': 35.0, 'nOuterUp2pPoses': 3, 'nInlierSetsRequired': 1, 'failure_probability' : 0.85}
 
-            print(f"Recon args: {len(points2D), len(points3D), cam_to_use, refinement_opts_to_use}\n")
-
             time_start = process_time_ns()
             camR, stats = poselib.RECON_threshold_solver_iterations_bounded(points2D, points3D, cam_to_use, recon_opts, refinement_opts_to_use)
             time_end = process_time_ns()
