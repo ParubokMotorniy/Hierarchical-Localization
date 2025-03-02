@@ -194,18 +194,14 @@ def main(
                                  2100, 2400,
                                  2775]
         else:
-            #iterations_bounds = [5, 10, 15, 20, 25, 30, 35, #step = 5
-                                 #45, 55, 65, 75,
-                                 #90, 105, 120,
-                                 #140, 160,
-                                 #185]
-            iterations_bounds = [7, 14, 21, 28, 35, 42, 49, #step = 7
-                                 63, 77, 91, 105,
-                                 126, 147, 168,
-                                 196, 224,
-                                 259]
+            iterations_bounds = [5,   10,  15, 20,   25,  30,  35,  45, 55,   65,   75,   90,  105,  120,  140,  160,  185]
+            # iterations_bounds = [7, 14, 21, 28, 35, 42, 49, #step = 7
+            #                      63, 77, 91, 105,
+            #                      126, 147, 168,
+            #                      196, 224,
+            #                      259]
 
-            iteration_repetitions = 2 #TODO: remove this explicit assignment
+            iteration_repetitions = 3 #TODO: remove this explicit assignment
 
 
     assert retrieval.exists(), retrieval
@@ -260,13 +256,16 @@ def main(
                     best_inliers = 0
                     best_cluster = None
                     logs_clusters = []
+                    runtimes = []
                     for i, cluster_ids in enumerate(clusters):
                         ret, log = pose_from_cluster(
                             localizer, qname, qcam, cluster_ids, features, matches, iterations_upper_bound
                         )
-                        if ret is not None and ret["num_inliers"] > best_inliers:
-                            best_cluster = i
-                            best_inliers = ret["num_inliers"]
+                        if ret is not None:
+                            runtimes.append(ret["time"])
+                            if ret["num_inliers"] > best_inliers:
+                                best_cluster = i
+                                best_inliers = ret["num_inliers"]
 
                         logs_clusters.append(log)
 
@@ -275,7 +274,7 @@ def main(
                         cam_from_world[qname][iterations_upper_bound].append((ret["cam_from_world"], ret['time'], ret["num_inliers"] > 0))
                     else:
                         closest = reference_sfm.images[db_ids[0]]
-                        cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1, False))
+                        cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world, np.mean(runtimes), False))
 
                     logs["loc"][qname] = {
                         "db": db_ids,
@@ -292,7 +291,7 @@ def main(
                         cam_from_world[qname][iterations_upper_bound].append((ret["cam_from_world"], ret["time"], ret["num_inliers"] > 0))
                     else: #never false actually, for POSELIB calls
                         closest = reference_sfm.images[db_ids[0]]
-                        cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world,-1, False))
+                        cam_from_world[qname][iterations_upper_bound].append((closest.cam_from_world, -1, False))
 
                     log["covisibility_clustering"] = covisibility_clustering
                     logs["loc"][qname] = log
